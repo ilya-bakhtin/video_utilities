@@ -1,0 +1,23 @@
+Microsoft Visual Studio Solution File, Format Version 8.00
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "kino30to24", "kino30to24.vcproj", "{9D1C095B-F0EB-4126-A6C4-EE3486E96925}"
+	ProjectSection(ProjectDependencies) = postProject
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfiguration) = preSolution
+		Debug = Debug
+		Release = Release
+	EndGlobalSection
+	GlobalSection(ProjectDependencies) = postSolution
+	EndGlobalSection
+	GlobalSection(ProjectConfiguration) = postSolution
+		{9D1C095B-F0EB-4126-A6C4-EE3486E96925}.Debug.ActiveCfg = Debug|Win32
+		{9D1C095B-F0EB-4126-A6C4-EE3486E96925}.Debug.Build.0 = Debug|Win32
+		{9D1C095B-F0EB-4126-A6C4-EE3486E96925}.Release.ActiveCfg = Release|Win32
+		{9D1C095B-F0EB-4126-A6C4-EE3486E96925}.Release.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+	EndGlobalSection
+	GlobalSection(ExtensibilityAddIns) = postSolution
+	EndGlobalSection
+EndGlobal
