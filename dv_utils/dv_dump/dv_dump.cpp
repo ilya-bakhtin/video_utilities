@@ -1,0 +1,868 @@
+// dv_dump.cpp : Defines the entry point for the console application.
+//
+
+#include "stdafx.h"
+#include "assert.h"
+#include <list>
+#include "fcntl.h"
+#include "io.h"
+
+#include "crypt.h"
+#include "avi.h"
+
+static const char *signature  = "01530000";
+
+struct TheNode
+{
+	time_t	_recDate;
+//	int		recDatFrm;
+	time_t	_tmCode;
+	int		frame;
+};
+
+struct TheSegment
+{
+	TheNode b;
+	TheNode e;
+	int		err_cnt;
+	int		file;
+};
+
+typedef std::list<TheSegment> SegList;
+
+/*
+static bool operator< (const struct tm & l, const struct tm & r)
+{
+	return l.tm_year < r.tm_year || (l.tm_year == r.tm_year && l.tm_yday < r.tm_yday) || (l.tm_yday == r.tm_yday && l.tm_hour < r.tm_hour) ||
+			(l.tm_hour == r.tm_hour && l.tm_min < r.tm_min) || (l.tm_min == r.tm_min && l.tm_sec < r.tm_sec);
+}
+
+static bool tcLess(const struct tm & l, const struct tm & r)
+{
+	return l.tm_hour < r.tm_hour || (l.tm_hour == r.tm_hour && l.tm_min < r.tm_min) || (l.tm_min == r.tm_min && l.tm_sec < r.tm_sec) || (l.tm_sec == r.tm_sec && l.tm_mday < r.tm_mday);
+}
+*/
+
+static bool operator< (const TheNode & l, const TheNode & r)
+{
+	return l._recDate < r._recDate || (l._recDate == r._recDate && l._tmCode < r._tmCode);
+//	return l._recDate < r._recDate || (l._recDate == r._recDate && (l.recDatFrm < r.recDatFrm || (l.recDatFrm == r.recDatFrm && l._tmCode < r._tmCode)));
+/*
+	if (l._recDate < r._recDate)
+		return true;
+	else if (l._recDate == r._recDate)
+	{
+		if (l.recDatFrm < r.recDatFrm)
+			return true;
+		else if (l.recDatFrm == r.recDatFrm)
+		{
+			if (l._tmCode < r._tmCode)
+				return true;
+		}
+	}
+	return false;
+*/
+}
+
+static bool operator> (const TheNode & l, const TheNode & r)
+{
+	return r < l;
+}
+
+static bool operator<= (const TheNode & l, const TheNode & r)
+{
+	return !(l>r);
+}
+
+static bool operator>= (const TheNode & l, const TheNode & r)
+{
+	return !(l<r);
+}
+
+static bool operator== (const TheNode & l, const TheNode & r)
+{
+	return !(l < r) && !(r < l);
+}
+
+/*
+static int tcDiff(const struct tm & l, const struct tm & r)
+{
+	return
+	(((l.tm_hour*60 + l.tm_min) * 60 + l.tm_sec)*25 + l.tm_mday) -
+	(((r.tm_hour*60 + r.tm_min) * 60 + r.tm_sec)*25 + r.tm_mday);
+}
+
+static void tcDec(struct tm &tc)
+{
+	--tc.tm_mday;
+	if (tc.tm_mday < 0)
+	{
+		tc.tm_mday = 24;
+		--tc.tm_sec;
+		if (tc.tm_sec < 0)
+		{
+			tc.tm_sec = 59;
+			--tc.tm_min;
+			if (tc.tm_min < 0)
+			{
+				tc.tm_min = 59;
+				--tc.tm_hour;
+			}
+		}
+	}
+	assert(tc.tm_hour >= 0);
+	tc.tm_yday = tc.tm_mday;
+}
+*/
+
+static
+void AddSegment(SegList &seg_list, const TheSegment &inp_s)
+{
+	TheSegment s = inp_s;
+
+	for (SegList::iterator i = seg_list.begin(); i != seg_list.end(); ++i)
+	{
+		TheSegment &lb = *i;
+
+		if (lb.e < s.b)
+			continue;
+		if (lb.b > s.e)
+		{
+			i = seg_list.insert(i, s);
+			return;
+		}
+
+		if (s.b < lb.b)
+		{
+			TheSegment ins_s = s;
+			time_t len = lb.b._tmCode - ins_s.b._tmCode;
+			ins_s.e._tmCode = ins_s.b._tmCode + len - 1;
+			ins_s.e.frame = ins_s.b.frame + (int)len - 1;
+			s.b._tmCode += len;
+			s.b.frame += (int)len;
+			if (ins_s.b._recDate != ins_s.e._recDate)
+			{
+				ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
+				s.b._recDate = s.b._recDate + len/25;
+			}
+			i = seg_list.insert(i, ins_s);
+		}
+		else if (s.b > lb.b)
+		{
+			TheSegment ins_s = lb;
+			time_t len = s.b._tmCode - lb.b._tmCode;
+			ins_s.e._tmCode = ins_s.b._tmCode + len - 1;
+			ins_s.e.frame = ins_s.b.frame + (int)len - 1;
+			lb.b._tmCode += len;
+			lb.b.frame += (int)len;
+			if (ins_s.b._recDate != ins_s.e._recDate)
+			{
+				ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
+				lb.b._recDate = lb.b._recDate + len/25;
+			}
+			i = seg_list.insert(i, ins_s);
+		}
+		else
+		{
+			TheSegment ins_s = lb;
+			time_t len = lb.e._tmCode - lb.b._tmCode + 1;
+
+			if (s.err_cnt < lb.err_cnt)
+			{
+				if (s.e < lb.e)
+				{
+					len = s.e._tmCode - s.b._tmCode + 1;
+
+					ins_s.e._tmCode = ins_s.b._tmCode + len - 1;
+					ins_s.e.frame = ins_s.b.frame + (int)len - 1;
+					lb.b._tmCode += len;
+					lb.b.frame += (int)len;
+					if (ins_s.b._recDate != ins_s.e._recDate)
+					{
+						ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
+						lb.b._recDate = lb.b._recDate + len/25;
+					}
+					i = seg_list.insert(i, ins_s);
+					lb = *i;
+				}
+
+				lb.file = s.file;
+				lb.err_cnt = s.err_cnt;
+				lb.b = s.b;
+				lb.e._tmCode = s.b._tmCode + len - 1;
+				lb.e.frame = s.b.frame + (int)len - 1;
+				if (s.b._recDate != s.e._recDate)
+					lb.e._recDate = s.b._recDate + (len-1)/25;
+
+			}
+			if (s.e <= lb.e)
+				return;
+
+			s.b._tmCode += len;
+			s.b.frame += (int)len;
+			if (s.b._recDate != s.e._recDate)
+				lb.e._recDate = s.b._recDate + len/25;
+		}
+	}
+
+	assert(s.e >= seg_list.begin()->b);
+
+	seg_list.push_back(s);
+}
+
+static
+md5_hash calc_hash(int avi_handle, __int64 avi_size)
+{
+	char buf[1024];
+	__int64 step = avi_size / sizeof(buf);
+
+	if (step == 0)
+		step = 1;
+
+	memset(buf, 0, sizeof(buf));
+
+	__int64 pos = 0;
+	for (int i = 0; i < sizeof(buf) && pos < avi_size; ++i, pos += step)
+	{
+		_lseeki64(avi_handle, pos, SEEK_SET);
+		_read(avi_handle, buf+i, 1);
+	}
+
+	return calculate_md5(buf, sizeof(buf));
+}
+
+static
+bool test_md5(const TCHAR *buf, md5_hash &hash)
+{
+	if (strlen(buf) < 32)
+		return false;
+
+	BYTE inp_hash[16];
+	memset(inp_hash, 0, sizeof(inp_hash));
+
+	for (int i = 0; i < 32; ++i)
+	{
+		int d;
+
+		if (buf[i] >= '0' && buf[i] <= '9')
+			d = buf[i] - '0';
+		else if (buf[i] >= 'A' && buf[i] <= 'F')
+			d = buf[i] - 'A' + 0xA;
+		else if (buf[i] >= 'a' && buf[i] <= 'f')
+			d = buf[i] - 'a' + 0xA;
+
+		if ((i&1) == 0)
+			d <<= 4;
+
+		inp_hash[i/2] |= d;
+	}
+
+	return memcmp(inp_hash, hash.hash, 16) == 0;
+}
+
+static
+bool get_str(char *buf, int sz_buf, FILE *f)
+{
+	if (fgets(buf, sz_buf, f) != buf)
+		return false;
+
+	size_t l = strlen(buf);
+	if (l != 0 && buf[l-1] == 0xA)
+		buf[l-1] = 0;
+
+	return true;
+}
+
+static
+bool read_or_create_digest(const TCHAR *filename, int fileno, FILE **dig_file, SegList &seg_list, int &frames)
+{
+	TCHAR drv[_MAX_DRIVE];
+	TCHAR dir[_MAX_DIR];
+	TCHAR fname[_MAX_FNAME];
+	TCHAR ext[_MAX_EXT];
+
+	if (dig_file != NULL)
+		*dig_file = NULL;
+
+	_splitpath(filename, drv, dir, fname, ext);
+
+	TCHAR digest_filename[_MAX_PATH];
+	_makepath(digest_filename, drv, dir, fname, _T("digest"));
+
+	__int64 real_avi_size;
+
+	int af = _open(filename, _O_RDONLY);
+	if (af == -1)
+		return false; // TODO **** FATAL
+	_lseeki64(af, 0, SEEK_END);
+	real_avi_size = _telli64(af);
+	md5_hash hash = calc_hash(af, real_avi_size);
+	_close(af);
+
+	bool res = false;
+	FILE *f = fopen(digest_filename, _T("r"));
+
+	if (f != NULL)
+	{
+		TCHAR buf[1024];
+		__int64 avi_size;
+
+		if (get_str(buf, sizeof(buf), f) && stricmp(buf, signature) == 0 &&
+			get_str(buf, sizeof(buf), f) && /*stricmp(buf, filename) == 0 &&*/
+			get_str(buf, sizeof(buf), f) && sscanf(buf, "%I64d", &avi_size) == 1 && real_avi_size == avi_size &&
+			get_str(buf, sizeof(buf), f) && test_md5(buf, hash) &&
+			get_str(buf, sizeof(buf), f) && sscanf(buf, "%d", &frames) == 1)
+		{
+			SegList t_seg_list;
+			bool	bad_rec = false;
+
+			while (get_str(buf, sizeof(buf), f))
+			{
+				TheSegment s;
+				if (sscanf(buf, "%d %d %d %d %d %d %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt) != 7)
+					bad_rec = true;
+				else
+				{
+					s.file = fileno;
+					AddSegment(t_seg_list, s);
+				}
+			}
+			
+			if (!bad_rec)
+			{
+				for (SegList::iterator i = t_seg_list.begin(); i != t_seg_list.end(); ++i)
+					AddSegment(seg_list, *i);
+
+				printf("digest correct\n");
+				res = true;
+			}
+		}
+
+		fclose(f);
+		f = NULL;
+	}
+
+	if (!res && f == NULL)
+	{
+		f = fopen(digest_filename, _T("w"));
+		if (f == NULL)
+			return false;
+		fprintf(f, "%s\n", signature);
+		fprintf(f, "%s\n", filename);
+		fprintf(f, "%I64d\n", real_avi_size);
+		for (int i = 0; i < sizeof(hash.hash); ++i)
+			fprintf(f, "%02x", hash.hash[i]);
+		fprintf(f, "\n");
+
+		if (dig_file != NULL)
+			*dig_file = f;
+		else
+			fclose(f);
+	}
+
+	return res;
+}
+
+static
+void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &frames)
+{
+    AVIFile avi;
+
+	if (!avi.Open(filename))
+	{
+		printf("DVInfo: Can't open AVI File %s\n", filename);
+		return;
+	}
+
+	FILE *digest;
+	if (read_or_create_digest(filename, fileno, &digest, seg_list, frames))
+		return;
+
+	avi.ParseRIFF();
+	avi.ReadIndex();
+
+	int n = avi.GetTotalFrames();
+	frames = n;
+
+	if (digest != NULL)
+		fprintf(digest, "%d\n", n);
+
+	int prev_frame = -1;
+	int prev_errors = -1;
+	time_t prevFrm_tmCode = 0;
+	time_t prevFrm_recDate = 0;
+	time_t prev_tmCode = 0;
+	time_t prev_recDate = 0;
+
+	int recDate_sec_frames = 0;
+
+	for (int i = 0; i < n; ++i)
+	{
+		Frame f;
+
+		if (avi.GetDVFrame(f, i) != 0)
+			printf("error reading DV frame %d\n", i);
+		else
+		{
+			struct	tm tmCode;
+			time_t	_tmCode = 0;
+
+			struct	tm recDate;
+			time_t	_recDate = 0;
+			bool	tm_code_valid = false;
+			bool	rec_date_valid = false;
+
+			if (f.GetTimeCode(tmCode))
+			{
+				tm_code_valid = true;
+				_tmCode = ((tmCode.tm_hour*60 + tmCode.tm_min) * 60 + tmCode.tm_sec)*25 + tmCode.tm_mday;
+ 			}
+
+			if (f.GetRecordingDate(recDate))
+			{
+				rec_date_valid = true;
+				_recDate = mktime(&recDate);
+			}
+
+			if (!tm_code_valid)
+				printf("no time code at %d\n", i);
+			if (!rec_date_valid)
+				printf("no recording date at %d\n", i);
+
+			int blocks;
+			int errors = f.GetErrorsCount(blocks);
+
+			if (errors != 0)
+				printf("frame %d has %d erroneous blocks of %d\n", i, errors, blocks);
+
+			if (prev_frame != -1 && 
+				(!tm_code_valid || !rec_date_valid || 
+					_tmCode - prevFrm_tmCode != 1 || (_recDate - prevFrm_recDate != 0 /*&& (recDate_sec_frames%25) != 0*/) || errors != prev_errors))
+			{
+//				printf("the cut: %d - %d  %d - %d  %d - %d\n", prev_frame, i-1, prev_tmCode, prevFrm_tmCode, prev_recDate, prevFrm_recDate);
+//				printf("the cut: %d - %d\n", prev_frame, i-1);
+				
+				TheSegment s;
+				s.file = fileno;
+				s.err_cnt = prev_errors;
+				s.b.frame = prev_frame;
+				s.b._recDate = prev_recDate;
+				s.b._tmCode = prev_tmCode;
+				s.e.frame = i-1;
+				s.e._recDate = prevFrm_recDate;
+				s.e._tmCode = prevFrm_tmCode;
+				AddSegment(seg_list, s);
+
+				if (digest != NULL)
+					fprintf(digest, "%d %d %d %d %d %d %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+
+				prev_frame = -1;
+			}
+
+			if (!tm_code_valid || !rec_date_valid)
+			{
+				prev_frame = -1;
+				recDate_sec_frames = 0;
+			}
+			else if (prev_frame == -1)
+			{
+				prev_frame = i;
+				prev_errors = errors;
+				prev_tmCode = _tmCode;
+				prev_recDate = _recDate;
+				recDate_sec_frames = 1;
+			}
+			else
+				++recDate_sec_frames;
+
+			prevFrm_tmCode = _tmCode;
+			prevFrm_recDate = _recDate;
+		}
+	}
+
+	if (prev_frame != -1)
+	{
+//		printf("the cut: %d - %d\n", prev_frame, n-1);
+
+		TheSegment s;
+		s.file = fileno;
+		s.err_cnt = prev_errors;
+		s.b.frame = prev_frame;
+		s.b._recDate = prev_recDate;
+		s.b._tmCode = prev_tmCode;
+		s.e.frame = n-1;
+		s.e._recDate = prevFrm_recDate;
+		s.e._tmCode = prevFrm_tmCode;
+		AddSegment(seg_list, s);
+		if (digest != NULL)
+			fprintf(digest, "%d %d %d %d %d %d %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+	}
+
+	if (digest != NULL)
+		fclose(digest);
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+#if 0
+	char *str = "gfhjkmxbr";
+	size_t len = strlen(str);
+	md5_hash hash = calculate_md5(str, len);
+	for (int i = 0; i < sizeof(hash.hash); ++i)
+		printf("%x", hash.hash[i]);
+	printf("\n");
+	return 0;
+#endif
+
+#if 0
+std::list<int> li;
+li.push_back(0);
+li.push_back(1);
+li.push_back(2);
+for (std::list<int>::iterator i = li.begin(); i != li.end(); ++i)
+{
+	if (*i == 1)
+	{
+		li.insert(i, 99);
+	}
+}
+for (std::list<int>::iterator i = li.begin(); i != li.end(); ++i)
+{
+	printf("%d\n", *i);
+}
+return 0;
+#endif
+
+	if (argc < 2)
+	{
+		printf("usage: dv_dump <filename>\n");
+		return 1;
+	}
+
+	SegList seg_list;
+
+	TCHAR mfn[_MAX_PATH];
+	GetModuleFileName(NULL, mfn, sizeof(mfn));
+	TCHAR drv[_MAX_DRIVE];
+	TCHAR dir[_MAX_DIR];
+	TCHAR fname[_MAX_FNAME];
+	TCHAR ext[_MAX_EXT];
+	_splitpath(mfn, drv, dir, fname, ext);
+	TCHAR result_filename[_MAX_PATH];
+	_makepath(result_filename, drv, dir, _T("result"), _T("vcf"));
+
+	FILE *vcf = fopen(result_filename, "w");
+
+	int offset = 0;
+	for (int i = 1; i < argc; ++i)
+	{
+		int frames;
+		process_file(argv[i], i-1, seg_list, frames);
+		fprintf(vcf, "declare offset_%d;\n", i-1);
+		fprintf(vcf, "offset_%d = %d;\n", i-1, offset);
+		offset += frames;
+	}
+
+	fprintf(vcf, "VirtualDub.Open(U\"%s\");\n", argv[1]);
+	for (int i = 2; i < argc; ++i)
+		fprintf(vcf, "VirtualDub.Append(U\"%s\");\n", argv[i]);
+
+	fprintf(vcf, "VirtualDub.video.SetMode(0);\n");
+	fprintf(vcf, "VirtualDub.subset.Clear();\n");
+
+	bool		f = true;
+	TheSegment	s;
+	struct tm b_rd;
+	struct tm e_rd;
+	char	b_date[256];
+	char	e_date[256];
+	int		b_h, b_m, b_s, b_f;
+	int		e_h, e_m, e_s, e_f;
+	int		st_frame = 0;
+	int		seg_len;
+
+	for (SegList::iterator i = seg_list.begin(); i != seg_list.end(); ++i)
+	{
+		if (f)
+		{
+			s = *i;
+			f = false;
+		}
+		else
+		{
+			if (s.file != i->file || i->b.frame != s.e.frame+1 || i->err_cnt != s.err_cnt)
+			{
+				b_rd = *localtime(&s.b._recDate); e_rd = *localtime(&s.e._recDate);
+				strftime(b_date, sizeof(b_date), "[%d/%m/%Y %H:%M:%S]", &b_rd);
+				strftime(e_date, sizeof(e_date), "[%d/%m/%Y %H:%M:%S]", &e_rd);
+				b_s = (int)s.b._tmCode / 25;
+				b_f = (int)s.b._tmCode % 25;
+				b_m = b_s / 60;
+				b_s = b_s % 60;
+				b_h = b_m / 60;
+				b_m = b_m % 60;
+				e_s = (int)s.e._tmCode / 25;
+				e_f = (int)s.e._tmCode % 25;
+				e_m = e_s / 60;
+				e_s = e_s % 60;
+				e_h = e_m / 60;
+				e_m = e_m % 60;
+
+				seg_len = s.e.frame-s.b.frame+1;
+				printf("%d %5d-%5d %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
+					s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+				fprintf(vcf, "VirtualDub.subset.AddRange(offset_%d + %d, %d);\n", s.file, s.b.frame, seg_len);
+				st_frame += seg_len;
+
+				s = *i;
+			}
+			else
+				s.e = i->e;
+		}
+	}
+
+	b_rd = *localtime(&s.b._recDate); e_rd = *localtime(&s.e._recDate);
+	strftime(b_date, sizeof(b_date), "[%d/%m/%Y %H:%M:%S]", &b_rd);
+	strftime(e_date, sizeof(e_date), "[%d/%m/%Y %H:%M:%S]", &e_rd);
+	b_s = (int)s.b._tmCode / 25;
+	b_f = (int)s.b._tmCode % 25;
+	b_m = b_s / 60;
+	b_s = b_s % 60;
+	b_h = b_m / 60;
+	b_m = b_m % 60;
+	e_s = (int)s.e._tmCode / 25;
+	e_f = (int)s.e._tmCode % 25;
+	e_m = e_s / 60;
+	e_s = e_s % 60;
+	e_h = e_m / 60;
+	e_m = e_m % 60;
+
+	seg_len = s.e.frame-s.b.frame+1;
+	printf("%d %5d-%5d %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
+		s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+	fprintf(vcf, "VirtualDub.subset.AddRange(offset_%d + %d, %d);\n", s.file, s.b.frame, seg_len);
+	st_frame += seg_len;
+
+	fclose(vcf);
+	return 0;
+}
+
+static
+int matrix_test_kengury()
+{
+#define M 4
+#define N 4
+#define limit 9
+
+	int m[M][N];
+	int prod_m[M][N];
+	int min_p = INT_MAX;
+
+	int cnts[limit*(M>N?M:N)];
+
+	memset(m, 0, sizeof(m));
+	memset(prod_m, 0, sizeof(m));
+
+	int ci = 0;
+	int cj = 0;
+
+static clock_t t0 = clock();
+static clock_t t1 = 0;
+static clock_t t2 = 0;
+
+	int eq_a = 0;
+	int eq_b = 0;
+	bool eq = false;
+
+	for (;;)
+	{
+		int prod[M+N];
+//		memset(prod, 0, sizeof(prod));
+
+static int eq_cnt = 0;
+{
+	static int c0 = 0;
+	static int c1 = 0;
+	if (m[2][1] == 0)
+		++c0;
+	else if (m[2][1] == 1)
+	{
+		if (t1 == 0)
+			t1 = clock();
+		++c1;
+	}
+	else
+	{
+		t2 = clock() - t1;
+		t1 = t1 - t0;
+		printf("%d %d\n", t1, t2);
+		exit(0);
+	}
+}
+		if (!eq)
+		{
+++eq_cnt;
+			memset(cnts, 0, sizeof(cnts));
+
+			for (int pi = 0; !eq && pi < M; ++pi)
+			{
+				int s = 0;
+				int row = M-pi-1;
+				for (int pj = 0; pj < N; ++pj)
+					s += m[row][pj];
+				if (s >= min_p)
+				{
+					eq = true;
+					eq_a = eq_b = row;
+				}
+				else if (cnts[s] > 0)
+				{
+					eq = true;
+					eq_a = cnts[s] - 1;
+					eq_b = row;
+				}
+				else
+				{
+					cnts[s] = row+1;
+					prod[pi] = s;
+				}
+			}
+			for (int pi = 0; !eq && pi < N; ++pi)
+			{
+				int s = 0;
+				for (int pj = 0; pj < M; ++pj)
+					s += m[pj][pi];
+				if (s >= min_p)
+				{
+					eq = true;
+					eq_a = eq_b = M+pi;
+				}
+				else if (cnts[s] > 0)
+				{
+					eq = true;
+					eq_a = cnts[s] - 1;
+					eq_b = M+pi;
+				}
+				else
+				{
+					cnts[s] = M+pi+1;
+					prod[M+pi] = s;
+				}
+			}
+
+			if (!eq)
+			{
+				int t = 0;
+				for (int i = 0; i < M; ++i)
+					t += prod[i];
+
+				if (min_p > t)
+				{
+					min_p = t;
+					memcpy(prod_m, m, sizeof(prod_m));
+				}
+			}
+		}
+
+		bool found = false;
+		for (int i = 0; !found && i < M; ++i)
+		{
+			for (int j = 0; !found && j < N; ++j)
+			{
+				++m[i][j];
+				if (eq)
+				{
+					if (eq_a == i || eq_b == i || eq_a-M == j || eq_b-M == j)
+						eq = false;
+				}
+
+				if (m[i][j] >= min_p || m[i][j] > limit)
+				{
+					m[i][j] = 0;
+					ci = i;
+					cj = j;
+				}
+				else
+					found = true;
+			}
+		}
+		if (ci == M-1 && cj == N-1)
+			break;
+	}
+	printf("%d\n", min_p);
+	for (int i = 0; i < M; ++i)
+	{
+		for (int j = 0; j < N; ++j)
+			printf("%d ", prod_m[i][j]);
+		printf("\n");
+	}
+return 0;
+
+	for (m[0][0] = 0; m[0][0] < min_p && m[0][0] <= 9; ++m[0][0])
+	{
+		for (m[0][1] = 0; m[0][1] < min_p && m[0][1] <= 9; ++m[0][1])
+		{
+			for (m[0][2] = 0; m[0][2] < min_p && m[0][2] <= 9; ++m[0][2])
+			{
+				for (m[1][0] = 0; m[1][0] < min_p && m[1][0] <= 9; ++m[1][0])
+				{
+					for (m[1][1] = 0; m[1][1] < min_p && m[1][1] <= 9; ++m[1][1])
+					{
+						for (m[1][2] = 0; m[1][2] < min_p && m[1][2] <= 9; ++m[1][2])
+						{
+							for (m[2][0] = 0; m[2][0] < min_p && m[2][0] <= 9; ++m[2][0])
+							{
+								for (m[2][1] = 0; m[2][1] < min_p && m[2][1] <= 9; ++m[2][1])
+								{
+									for (m[2][2] = 0; m[2][2] < min_p && m[2][2] <= 9; ++m[2][2])
+									{
+
+										int prod[6];
+										memset(prod, 0, sizeof(prod));
+
+										for (int p = 0; p < 3; ++p)
+										{
+											prod[0] += m[0][p];
+											prod[1] += m[1][p];
+											prod[2] += m[2][p];
+											prod[3] += m[p][0];
+											prod[4] += m[p][1];
+											prod[5] += m[p][2];
+										}
+
+
+										bool eq = false;
+										for (int t0 = 0; !eq && t0 < 6; ++t0)
+										{
+											for (int t1 = t0+1; !eq && t1 < 6; ++t1)
+											{
+												if (prod[t0] == prod[t1])
+													eq = true;
+											}
+										}
+
+										if (!eq)
+										{
+											int t = prod[0] + prod[1] + prod[2];
+
+											if (min_p > t)
+											{
+												min_p = t;
+												memcpy(prod_m, m, sizeof(prod_m));
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	printf("%d\n", min_p);
+	printf("%d %d %d\n", prod_m[0][0], prod_m[0][1], prod_m[0][2]);
+	printf("%d %d %d\n", prod_m[1][0], prod_m[1][1], prod_m[1][2]);
+	printf("%d %d %d\n", prod_m[2][0], prod_m[2][1], prod_m[2][2]);
+}
