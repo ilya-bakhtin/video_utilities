@@ -122,20 +122,20 @@ void AddSegment(SegList &seg_list, const TheSegment &inp_s)
 
 	for (SegList::iterator i = seg_list.begin(); i != seg_list.end(); ++i)
 	{
-		TheSegment &lb = *i;
+		TheSegment* lb = &*i;
 
-		if (lb.e < s.b)
+		if (lb->e < s.b)
 			continue;
-		if (lb.b > s.e)
+		if (lb->b > s.e)
 		{
 			i = seg_list.insert(i, s);
 			return;
 		}
 
-		if (s.b < lb.b)
+		if (s.b < lb->b)
 		{
 			TheSegment ins_s = s;
-			time_t len = lb.b._tmCode - ins_s.b._tmCode;
+			time_t len = lb->b._tmCode - ins_s.b._tmCode;
 			ins_s.e._tmCode = ins_s.b._tmCode + len - 1;
 			ins_s.e.frame = ins_s.b.frame + (int)len - 1;
 			s.b._tmCode += len;
@@ -147,65 +147,65 @@ void AddSegment(SegList &seg_list, const TheSegment &inp_s)
 			}
 			i = seg_list.insert(i, ins_s);
 		}
-		else if (s.b > lb.b)
+		else if (s.b > lb->b)
 		{
-			TheSegment ins_s = lb;
-			time_t len = s.b._tmCode - lb.b._tmCode;
+			TheSegment ins_s = *lb;
+			time_t len = s.b._tmCode - lb->b._tmCode;
 			ins_s.e._tmCode = ins_s.b._tmCode + len - 1;
 			ins_s.e.frame = ins_s.b.frame + (int)len - 1;
-			lb.b._tmCode += len;
-			lb.b.frame += (int)len;
+			lb->b._tmCode += len;
+			lb->b.frame += (int)len;
 			if (ins_s.b._recDate != ins_s.e._recDate)
 			{
 				ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
-				lb.b._recDate = lb.b._recDate + len/25;
+				lb->b._recDate = lb->b._recDate + len/25;
 			}
 			i = seg_list.insert(i, ins_s);
 		}
 		else
 		{
-			TheSegment ins_s = lb;
-			time_t len = lb.e._tmCode - lb.b._tmCode + 1;
+			TheSegment ins_s = *lb;
+			time_t len = lb->e._tmCode - lb->b._tmCode + 1;
 
-			if (s.err_cnt < lb.err_cnt)
+			if (s.err_cnt < lb->err_cnt)
 			{
-				if (s.e < lb.e)
+				if (s.e < lb->e)
 				{
 					len = s.e._tmCode - s.b._tmCode + 1;
 
 					ins_s.e._tmCode = ins_s.b._tmCode + len - 1;
 					ins_s.e.frame = ins_s.b.frame + (int)len - 1;
-					lb.b._tmCode += len;
-					lb.b.frame += (int)len;
+					lb->b._tmCode += len;
+					lb->b.frame += (int)len;
 					if (ins_s.b._recDate != ins_s.e._recDate)
 					{
 						ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
-						lb.b._recDate = lb.b._recDate + len/25;
+						lb->b._recDate = lb->b._recDate + len/25;
 					}
 					i = seg_list.insert(i, ins_s);
-					lb = *i;
+					lb = &*i;
 				}
 
-				lb.file = s.file;
-				lb.err_cnt = s.err_cnt;
-				lb.b = s.b;
-				lb.e._tmCode = s.b._tmCode + len - 1;
-				lb.e.frame = s.b.frame + (int)len - 1;
+				lb->file = s.file;
+				lb->err_cnt = s.err_cnt;
+				lb->b = s.b;
+				lb->e._tmCode = s.b._tmCode + len - 1;
+				lb->e.frame = s.b.frame + (int)len - 1;
 				if (s.b._recDate != s.e._recDate)
-					lb.e._recDate = s.b._recDate + (len-1)/25;
+					lb->e._recDate = s.b._recDate + (len-1)/25;
 
 			}
-			if (s.e <= lb.e)
+			if (s.e <= lb->e)
 				return;
 
 			s.b._tmCode += len;
 			s.b.frame += (int)len;
 			if (s.b._recDate != s.e._recDate)
-				lb.e._recDate = s.b._recDate + len/25;
+				lb->e._recDate = s.b._recDate + len/25;
 		}
 	}
 
-	assert(s.e >= seg_list.begin()->b);
+	assert(seg_list.size() == 0 || s.e >= seg_list.begin()->b);
 
 	seg_list.push_back(s);
 }
@@ -319,7 +319,13 @@ bool read_or_create_digest(const TCHAR *filename, int fileno, FILE **dig_file, S
 			while (get_str(buf, sizeof(buf), f))
 			{
 				TheSegment s;
-				if (sscanf(buf, "%d %d %d %d %d %d %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt) != 7)
+				int cnt;
+				if (sizeof(s.b._recDate) == 4)
+					cnt = sscanf(buf, "%d %d %d %d %d %d %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt);
+				else
+					cnt = sscanf(buf, "%d %lld %lld %d %lld %lld %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt);
+
+				if (cnt != 7)
 					bad_rec = true;
 				else
 				{
@@ -454,17 +460,25 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 				AddSegment(seg_list, s);
 
 				if (digest != NULL)
-					fprintf(digest, "%d %d %d %d %d %d %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+				{
+					if (sizeof(s.b._recDate) == 4)
+						fprintf(digest, "%d %d %d %d %d %d %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+					else
+						fprintf(digest, "%d %lld %lld %d %lld %lld %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+				}
 
 				prev_frame = -1;
 			}
 
 			if (!tm_code_valid || !rec_date_valid)
 			{
-				prev_frame = -1;
-				recDate_sec_frames = 0;
+//				prev_frame = -1;
+//				recDate_sec_frames = 0;
+				_tmCode = prevFrm_tmCode+1;
+				_recDate = prevFrm_recDate;
 			}
-			else if (prev_frame == -1)
+
+			if (prev_frame == -1)
 			{
 				prev_frame = i;
 				prev_errors = errors;
@@ -495,7 +509,12 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 		s.e._tmCode = prevFrm_tmCode;
 		AddSegment(seg_list, s);
 		if (digest != NULL)
-			fprintf(digest, "%d %d %d %d %d %d %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+		{
+			if (sizeof(s.b._recDate) == 4)
+				fprintf(digest, "%d %d %d %d %d %d %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+			else
+				fprintf(digest, "%d %lld %lld %d %lld %lld %d\n", s.b.frame, s.b._recDate, s.b._tmCode, s.e.frame, s.e._recDate, s.e._tmCode, s.err_cnt);
+		}
 	}
 
 	if (digest != NULL)
@@ -609,8 +628,16 @@ return 0;
 				e_m = e_m % 60;
 
 				seg_len = s.e.frame-s.b.frame+1;
-				printf("%d %5d-%5d %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
-					s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+				if (sizeof(s.b._tmCode) == 4)
+				{
+					printf("%d %5d-%5d %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
+						s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+				}
+				else
+				{
+					printf("%d %5lld-%5lld %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
+						s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+				}
 				fprintf(vcf, "VirtualDub.subset.AddRange(offset_%d + %d, %d);\n", s.file, s.b.frame, seg_len);
 				st_frame += seg_len;
 
@@ -638,8 +665,16 @@ return 0;
 	e_m = e_m % 60;
 
 	seg_len = s.e.frame-s.b.frame+1;
-	printf("%d %5d-%5d %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
-		s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+	if (sizeof(s.b._tmCode) == 4)
+	{
+		printf("%d %5d-%5d %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
+			s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+	}
+	else
+	{
+		printf("%d %5lld-%5lld %5d-%5d %s-%s %02d:%02d:%02d:%02d-%02d:%02d:%02d:%02d %5d-%5d %d\n",
+			s.file, s.b._tmCode, s.e._tmCode, s.b.frame, s.e.frame, b_date, e_date, b_h, b_m, b_s, b_f, e_h, e_m, e_s, e_f, st_frame, st_frame+seg_len-1, s.err_cnt);
+	}
 	fprintf(vcf, "VirtualDub.subset.AddRange(offset_%d + %d, %d);\n", s.file, s.b.frame, seg_len);
 	st_frame += seg_len;
 
