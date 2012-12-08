@@ -12,6 +12,8 @@
 
 static const char *signature  = "01530000";
 
+static bool ignore_date = false;
+
 struct TheNode
 {
 	time_t	_recDate;
@@ -404,10 +406,13 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 
 	for (int i = 0; i < n; ++i)
 	{
-		Frame f;
+		Frame	f;
+		bool	is_drop;
 
-		if (avi.GetDVFrame(f, i) != 0)
+		if (avi.GetDVFrame(f, i, is_drop) != 0)
 			printf("error reading DV frame %d\n", i);
+		else if (is_drop)
+			printf("drop frame %d\n", i);
 		else
 		{
 			struct	tm tmCode;
@@ -430,6 +435,9 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 				_recDate = mktime(&recDate);
 			}
 
+			if (ignore_date)
+				rec_date_valid = true;
+
 			if (!tm_code_valid)
 				printf("no time code at %d\n", i);
 			if (!rec_date_valid)
@@ -441,6 +449,14 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 			if (errors != 0)
 				printf("frame %d has %d erroneous blocks of %d\n", i, errors, blocks);
 
+			if (prev_frame != -1 && _tmCode - prevFrm_tmCode != 1)
+			{
+				if (sizeof(_tmCode) == 4)
+					printf("frame %d jumps in time code from %d to %d\n", i, prevFrm_tmCode, _tmCode);
+				else
+					printf("frame %d jumps in time code from %lld to %lld\n", i, prevFrm_tmCode, _tmCode);
+			}
+			
 			if (prev_frame != -1 && 
 				(!tm_code_valid || !rec_date_valid || 
 					_tmCode - prevFrm_tmCode != 1 || (_recDate - prevFrm_recDate != 0 /*&& (recDate_sec_frames%25) != 0*/) || errors != prev_errors))
@@ -470,12 +486,20 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 				prev_frame = -1;
 			}
 
-			if (!tm_code_valid || !rec_date_valid)
+			if (!ignore_date)
 			{
-//				prev_frame = -1;
-//				recDate_sec_frames = 0;
-				_tmCode = prevFrm_tmCode+1;
-				_recDate = prevFrm_recDate;
+				if (!tm_code_valid || !rec_date_valid)
+				{
+					_tmCode = prevFrm_tmCode+1;
+					_recDate = prevFrm_recDate;
+				}
+			}
+			else
+			{
+				if (!tm_code_valid)
+					_tmCode = prevFrm_tmCode+1;
+				if (!rec_date_valid)
+					_recDate = prevFrm_recDate;
 			}
 
 			if (prev_frame == -1)
@@ -552,9 +576,11 @@ for (std::list<int>::iterator i = li.begin(); i != li.end(); ++i)
 return 0;
 #endif
 
-	if (argc < 2)
+	ignore_date = argc >= 2 && std::string(argv[1]) == _T("-d");
+
+	if (argc < 2 || (ignore_date && argc < 3))
 	{
-		printf("usage: dv_dump <filename>\n");
+		printf("usage: dv_dump [-d] <filename>\n");
 		return 1;
 	}
 
@@ -572,8 +598,9 @@ return 0;
 
 	FILE *vcf = fopen(result_filename, "w");
 
+	int first_arg = ignore_date?2:1;
 	int offset = 0;
-	for (int i = 1; i < argc; ++i)
+	for (int i = first_arg; i < argc; ++i)
 	{
 		int frames;
 		process_file(argv[i], i-1, seg_list, frames);
@@ -582,8 +609,8 @@ return 0;
 		offset += frames;
 	}
 
-	fprintf(vcf, "VirtualDub.Open(U\"%s\");\n", argv[1]);
-	for (int i = 2; i < argc; ++i)
+	fprintf(vcf, "VirtualDub.Open(U\"%s\");\n", argv[first_arg]);
+	for (int i = first_arg+1; i < argc; ++i)
 		fprintf(vcf, "VirtualDub.Append(U\"%s\");\n", argv[i]);
 
 	fprintf(vcf, "VirtualDub.video.SetMode(0);\n");

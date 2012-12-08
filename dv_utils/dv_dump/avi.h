@@ -160,7 +160,7 @@ public:
     virtual AVIFile& operator=(const AVIFile&);
 
     virtual int GetDVFrameInfo(__int64 &offset, int &size, unsigned int frameNum);
-    virtual int GetDVFrame(Frame &frame, int frameNum);
+    virtual int GetDVFrame(Frame &frame, int frameNum, bool& is_drop);
     virtual int GetTotalFrames() const;
     virtual void ParseList(int parent);
     virtual void ParseRIFF(void);

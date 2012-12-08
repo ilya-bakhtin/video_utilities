@@ -278,16 +278,23 @@ int AVIFile::GetDVFrameInfo(__int64 &offset, int &size, unsigned int frameNum)
     \return 0 if the frame could be read, -1 otherwise
 */
 
-int AVIFile::GetDVFrame(Frame &frame, int frameNum)
+int AVIFile::GetDVFrame(Frame &frame, int frameNum, bool& is_drop)
 {
     __int64	offset;
     int	size;
 
+	is_drop = false;
+
     if (GetDVFrameInfo(offset, size, frameNum) != 0)
         return -1;
 
-	_lseeki64(fd, offset, SEEK_SET) ;
-    read(fd, frame.data, size);
+	if (size < 0)
+		is_drop = true;
+	else
+	{
+		_lseeki64(fd, offset, SEEK_SET) ;
+		read(fd, frame.data, size);
+	}
 
     return 0;
 }
