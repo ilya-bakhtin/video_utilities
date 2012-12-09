@@ -372,19 +372,19 @@ bool read_or_create_digest(const TCHAR *filename, int fileno, FILE **dig_file, S
 }
 
 static
-void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &frames)
+int process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &frames)
 {
     AVIFile avi;
 
 	if (!avi.Open(filename))
 	{
 		printf("DVInfo: Can't open AVI File %s\n", filename);
-		return;
+		return 1;
 	}
 
 	FILE *digest;
-	if (read_or_create_digest(filename, fileno, &digest, seg_list, frames))
-		return;
+ 	if (read_or_create_digest(filename, fileno, &digest, seg_list, frames))
+		return 0;
 
 	avi.ParseRIFF();
 	avi.ReadIndex();
@@ -543,6 +543,8 @@ void process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fra
 
 	if (digest != NULL)
 		fclose(digest);
+
+	return 0;
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -603,7 +605,8 @@ return 0;
 	for (int i = first_arg; i < argc; ++i)
 	{
 		int frames;
-		process_file(argv[i], i-1, seg_list, frames);
+		if (process_file(argv[i], i-1, seg_list, frames) != 0)
+			return 1;
 		fprintf(vcf, "declare offset_%d;\n", i-1);
 		fprintf(vcf, "offset_%d = %d;\n", i-1, offset);
 		offset += frames;
