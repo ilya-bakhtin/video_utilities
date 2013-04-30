@@ -206,9 +206,9 @@ AVIFile::~AVIFile()
     \return 0 if the frame could be found, -1 otherwise
 */
 
-int AVIFile::GetDVFrameInfo(__int64 &offset, int &size, int frameNum)
+int AVIFile::GetDVFrameInfo(__int64 &offset, int &size, unsigned int frameNum)
 {
-    int i;
+    unsigned int i;
 
 	switch (index_type) {
     case AVI_LARGE_INDEX:
@@ -216,8 +216,7 @@ int AVIFile::GetDVFrameInfo(__int64 &offset, int &size, int frameNum)
         /* find relevant index in indx0 */
 
 
-        for (i = 0; frameNum >= indx[0]->aIndex[i].dwDuration; frameNum -= indx[0]->aIndex[i].dwDuration, ++i)
-            ;
+		for (i = 0; frameNum >= indx[0]->aIndex[i].dwDuration; frameNum -= indx[0]->aIndex[i].dwDuration, ++i) {}
 
         if (i != current_ix00) {
             _lseeki64(fd, indx[0]->aIndex[i].qwOffset + RIFF_HEADERSIZE, SEEK_SET) ;
@@ -279,20 +278,26 @@ int AVIFile::GetDVFrameInfo(__int64 &offset, int &size, int frameNum)
     \return 0 if the frame could be read, -1 otherwise
 */
 
-int AVIFile::GetDVFrame(Frame &frame, int frameNum)
+int AVIFile::GetDVFrame(Frame &frame, int frameNum, bool& is_drop)
 {
     __int64	offset;
     int	size;
 
+	is_drop = false;
+
     if (GetDVFrameInfo(offset, size, frameNum) != 0)
         return -1;
 
-	_lseeki64(fd, offset, SEEK_SET) ;
-    read(fd, frame.data, size);
+	if (size < 0)
+		is_drop = true;
+	else
+	{
+		_lseeki64(fd, offset, SEEK_SET) ;
+		read(fd, frame.data, size);
+	}
 
     return 0;
 }
-
 
 int AVIFile::GetTotalFrames() const
 {
@@ -305,12 +310,12 @@ int AVIFile::GetTotalFrames() const
  
 */
 
-void AVIFile::ParseList(int parent)
+void AVIFile::ParseList(size_t parent)
 {
     FOURCC      type;
     FOURCC      name;
     int         length;
-    int         list;
+    size_t      list;
     __int64     pos;
     __int64     listEnd;
 
@@ -372,7 +377,7 @@ void AVIFile::ReadIndex()
 		
         /* recalc number of frames from each index */
         mainHdr.dwTotalFrames = 0;
-        for (int i = 0; 
+        for (unsigned int i = 0; 
             i < indx[0]->nEntriesInUse; 
             mainHdr.dwTotalFrames += indx[0]->aIndex[i++].dwDuration);
         return;
@@ -380,14 +385,14 @@ void AVIFile::ReadIndex()
     idx1_chunk = FindDirectoryEntry(make_fourcc("idx1"));
     if (idx1_chunk != -1) {
         ReadChunk(idx1_chunk, (void*)idx1);
-        idx1->nEntriesInUse = GetDirectoryEntry(idx1_chunk).length / 16;
+        idx1->nEntriesInUse = (unsigned long)(GetDirectoryEntry(idx1_chunk).length / 16);
         index_type = AVI_SMALL_INDEX;
 		
 		/* recalc number of frames from the simple index */
         int frameNumIndex = 0;
         FOURCC chunkID1 = make_fourcc("00dc");
         FOURCC chunkID2 = make_fourcc("00db");
-        for (int i = 0; i < idx1->nEntriesInUse; ++i) {
+        for (unsigned int i = 0; i < idx1->nEntriesInUse; ++i) {
             if (idx1->aIndex[i].dwChunkId == chunkID1 || 
                     idx1->aIndex[i].dwChunkId == chunkID2 ) {
                 ++frameNumIndex;
@@ -398,11 +403,9 @@ void AVIFile::ReadIndex()
     }
 }
 
-
-
 bool AVIFile::isOpenDML( void )
 {
-	int i, j = 0;
+	size_t i, j = 0;
 	FOURCC dmlh = make_fourcc("dmlh");
 	
 	while ( (i = FindDirectoryEntry( dmlh, j++ )) != -1 )

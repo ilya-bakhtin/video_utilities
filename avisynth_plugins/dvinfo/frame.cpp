@@ -40,7 +40,7 @@ using std::endl;
 
 // local includes
 #include "frame.h"
-#include "avisynth.h"
+//#include "avisynth.h"
 
 #ifndef HAVE_LIBDV
 bool Frame::maps_initialized = false;
@@ -150,6 +150,8 @@ bool Frame::GetSSYBPack(int packNum, Pack &pack) const
 
     /* process all DIF sequences */
 
+//int packs = 0;
+
     for (int i = 0; i < seqCount; ++i) {
 
         /* there are two DIF blocks in the subcode section */
@@ -178,15 +180,40 @@ bool Frame::GetSSYBPack(int packNum, Pack &pack) const
                     pack.data[2] = s[2];
                     pack.data[3] = s[3];
                     pack.data[4] = s[4];
-                    return true;
+//					++packs;
+					return true;
                 }
             }
         }
     }
-    return false;
-
+//	return packs != 0;
+	return false;
 }
 
+int Frame::GetErrorsCount(int &blocks) const
+{
+	int errors = 0;
+	blocks = 0;
+
+	int seqCount = IsPAL() ? 12 : 10;
+
+	for (int i = 0; i < seqCount; ++i)
+	{
+        for (int j = 0; j < 150; ++j)
+		{
+			const unsigned char *s = &data[i * 150 * 80 + j * 80];
+
+			if (s[0] >= 0x90 && s[0] <= 0x9f)
+			{
+				++blocks;
+				if ((s[3] & 0xF0) != 0)
+					++errors;
+			}
+		}
+	}
+
+	return errors;
+}
 
 /** gets a video auxiliary data packet
  
@@ -493,7 +520,7 @@ int Frame::GetFrameSize(void) const
 
     \return frames per second
 */
-float Frame::GetFrameRate() const
+double Frame::GetFrameRate() const
 {
 	return IsPAL() ? 25.0 : 30000.0/1001.0;
 }

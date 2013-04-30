@@ -122,7 +122,8 @@ typedef struct
         DWORD dwOffset;
         DWORD dwSize;
     }
-    aIndex[4029];	//4028 orig. Why ? 
+//    aIndex[4029];	//4028 orig. Why ?
+	aIndex[17895];
 }
 AVIStdIndex;
 
@@ -135,7 +136,7 @@ typedef struct
         DWORD	dwOffset;
         DWORD	dwSize;
     }
-    aIndex[20000];
+    aIndex[40000];
     DWORD	nEntriesInUse;
 }
 AVISimpleIndex;
@@ -158,10 +159,10 @@ public:
     virtual ~AVIFile();
     virtual AVIFile& operator=(const AVIFile&);
 
-    virtual int GetDVFrameInfo(__int64 &offset, int &size, int frameNum);
-    virtual int GetDVFrame(Frame &frame, int frameNum);
+    virtual int GetDVFrameInfo(__int64 &offset, int &size, unsigned int frameNum);
+    virtual int GetDVFrame(Frame &frame, int frameNum, bool& is_drop);
     virtual int GetTotalFrames() const;
-    virtual void ParseList(int parent);
+    virtual void ParseList(size_t parent);
     virtual void ParseRIFF(void);
     virtual void ReadIndex(void);
 	virtual bool isOpenDML(void);
@@ -172,15 +173,15 @@ protected:
     int                 file_list;
     int                 riff_list;
     int                 hdrl_list;
-    int                 avih_chunk;
-    int                 movi_list;
+    size_t              avih_chunk;
+    size_t              movi_list;
     int                 junk_chunk;
-    int                 idx1_chunk;
+    size_t              idx1_chunk;
 
 //    AVIStreamHeader     streamHdr[2];
     AVISuperIndex       *indx[2];
     AVIStdIndex         *ix[2];
-    int                 indx_chunk[2];
+    size_t              indx_chunk[2];
     int                 ix_chunk[2];
     int                 strl_list[2];
     int                 strh_chunk[2];

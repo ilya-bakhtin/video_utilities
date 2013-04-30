@@ -67,10 +67,11 @@ public:
     bool GetAAUXPack(int packNum, Pack &pack) const;
     bool GetTimeCode(tm &timeCode) const;
     bool GetRecordingDate(struct tm &recDate) const;
+	int  GetErrorsCount(int &blocks) const;
     string GetRecordingDate(void) const;
     bool GetAudioInfo(AudioInfo &info) const;
     int GetFrameSize(void) const;
-    float GetFrameRate(void) const;
+    double GetFrameRate(void) const;
     bool IsPAL(void) const;
     bool IsNewRecording(void) const;
     bool IsComplete(void) const;

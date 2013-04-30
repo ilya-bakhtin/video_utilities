@@ -51,11 +51,11 @@ public:
     FOURCC name;
     __int64 length;
     __int64 offset;
-    int parent;
+    size_t parent;
     int written;
 
     RIFFDirEntry();
-    RIFFDirEntry(FOURCC t, FOURCC n, int l, int o, int p);
+    RIFFDirEntry(FOURCC t, FOURCC n, __int64 l, int o, size_t p);
 };
 
 
@@ -69,14 +69,14 @@ public:
 
     virtual bool Open(const char *s);
     virtual void Close();
-	virtual int AddDirectoryEntry(FOURCC type, FOURCC name, __int64 length, int list);
-	virtual void SetDirectoryEntry(int i, RIFFDirEntry &entry);
-    virtual RIFFDirEntry GetDirectoryEntry(int i) const;
-    virtual int FindDirectoryEntry(FOURCC type, int n = 0) const;
-    virtual void ParseChunk(int parent);
-    virtual void ParseList(int parent);
+	virtual size_t AddDirectoryEntry(FOURCC type, FOURCC name, __int64 length, size_t list);
+	virtual void SetDirectoryEntry(size_t i, RIFFDirEntry &entry);
+    virtual RIFFDirEntry GetDirectoryEntry(size_t i) const;
+    virtual size_t FindDirectoryEntry(FOURCC type, size_t n = 0) const;
+    virtual void ParseChunk(size_t parent);
+    virtual void ParseList(size_t parent);
     virtual void ParseRIFF(void);
-    virtual void ReadChunk(int chunk_index, void *data);
+    virtual void ReadChunk(size_t chunk_index, void *data);
 
 protected:
     int fd;

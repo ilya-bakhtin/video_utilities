@@ -111,10 +111,16 @@ PVideoFrame __stdcall DVInfo::GetFrame(int n, IScriptEnvironment* env) {
 		strcpy(rec_time, show_error ? "frame# too high" : "");
 		strcpy(tc_time, show_error ? "frame# too high" : "");
 	} else {
+		bool is_drop;
 		sprintf(current_frame, "%u", n);
-		if (avi.GetDVFrame(f, n)) {
+		if (avi.GetDVFrame(f, n, is_drop)) {
 			strcpy(rec_time, show_error ? "error reading DV frame" : "");
 			strcpy(tc_time, show_error ? "error reading DV frame" : "");
+		}
+		else if (is_drop)
+		{
+			strcpy(rec_time, "drop frame");
+			strcpy(tc_time, "drop frame");
 		} else {
 			if (!f.GetRecordingDate(recDate)) {
 				strcpy(rec_time, show_error ? "no recording date" : "");
@@ -150,6 +156,7 @@ PVideoFrame __stdcall DVInfo::GetFrame(int n, IScriptEnvironment* env) {
 			if (!f.GetTimeCode(timeCode)) {
 				strcpy(tc_time, show_error ? "no timecode" : "");
 			} else {
+				++timeCode.tm_mday;
 				strftime(tc_time, 255, tc_format, &timeCode);
 			}
 		}

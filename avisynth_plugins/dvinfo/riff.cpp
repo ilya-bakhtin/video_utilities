@@ -69,7 +69,7 @@ RIFFDirEntry::RIFFDirEntry()
 {}
 
 
-RIFFDirEntry::RIFFDirEntry (FOURCC t, FOURCC n, int l, int o, int p): type(t), name(n), length(l), offset(o), parent(p), written(0)
+RIFFDirEntry::RIFFDirEntry (FOURCC t, FOURCC n, __int64 l, int o, size_t p): type(t), name(n), length(l), offset(o), parent(p), written(0)
 {}
 
 
@@ -158,7 +158,7 @@ void RIFFFile::Close()
     The topmost object is not contained in any other container. Use
     the special ID RIFF_NO_PARENT to create the topmost object. */
 
-int RIFFFile::AddDirectoryEntry(FOURCC type, FOURCC name, __int64 length, int list)
+size_t RIFFFile::AddDirectoryEntry(FOURCC type, FOURCC name, __int64 length, size_t list)
 {
     /* Put all parameters in an RIFFDirEntry object. The offset is
        currently unknown. */
@@ -202,7 +202,7 @@ int RIFFFile::AddDirectoryEntry(FOURCC type, FOURCC name, __int64 length, int li
     \note Do not change length, offset, or the parent container.
     \note Do not change an empty name ("") to a name and vice versa */
 
-void RIFFFile::SetDirectoryEntry(int i, RIFFDirEntry &entry)
+void RIFFFile::SetDirectoryEntry(size_t i, RIFFDirEntry &entry)
 {
     _ASSERT(i >= 0 && i < (int)directory.size());
 
@@ -218,7 +218,7 @@ void RIFFFile::SetDirectoryEntry(int i, RIFFDirEntry &entry)
     \param i the ID of the entry to retrieve
     \return the entry */
 
-RIFFDirEntry RIFFFile::GetDirectoryEntry(int i) const
+RIFFDirEntry RIFFFile::GetDirectoryEntry(size_t i) const
 {
     _ASSERT (i >= 0 && i < (int)directory.size());
 
@@ -235,10 +235,11 @@ RIFFDirEntry RIFFFile::GetDirectoryEntry(int i) const
     \param n    the zero-based instance of type to locate
     \return the index of the found object in the directory, or -1 if not found */
 
-int RIFFFile::FindDirectoryEntry (FOURCC type, int n) const
+size_t RIFFFile::FindDirectoryEntry (FOURCC type, size_t n) const
 {
-    int i, j = 0;
-    int count = directory.size();
+    size_t i;
+	size_t j = 0;
+    size_t count = directory.size();
 
     for (i = 0; i < count; ++i)
         if (directory[i].type == type)
@@ -261,7 +262,7 @@ int RIFFFile::FindDirectoryEntry (FOURCC type, int n) const
     \param parent The id of the item to process
 */
 
-void RIFFFile::ParseChunk(int parent)
+void RIFFFile::ParseChunk(size_t parent)
 {
     FOURCC      type;
     int         length;
@@ -271,8 +272,8 @@ void RIFFFile::ParseChunk(int parent)
 
     read(fd, &type, sizeof(type));
     if (type == make_fourcc("LIST")) {
-        typesize = -sizeof(type);
-        _lseeki64(fd, typesize, SEEK_CUR);
+        typesize = sizeof(type);
+        _lseeki64(fd, -typesize, SEEK_CUR);
         ParseList(parent);
     }
 
@@ -294,11 +295,11 @@ void RIFFFile::ParseChunk(int parent)
  
 */
 
-void RIFFFile::ParseList(int parent)
+void RIFFFile::ParseList(size_t parent)
 {
     FOURCC      type;
     FOURCC      name;
-    int         list;
+    size_t      list;
     int         length;
     __int64     pos;
     __int64	listEnd;
@@ -340,7 +341,7 @@ void RIFFFile::ParseRIFF(void)
     FOURCC      type;
     int         length;
     __int64     pos;
-    int         container = AddDirectoryEntry(make_fourcc("FILE"), make_fourcc("FILE"), 0, RIFF_NO_PARENT);
+    size_t      container = AddDirectoryEntry(make_fourcc("FILE"), make_fourcc("FILE"), 0, RIFF_NO_PARENT);
 
     pos = _lseeki64(fd, 0, SEEK_SET);
 
@@ -364,11 +365,20 @@ void RIFFFile::ParseRIFF(void)
  
 */
 
-void RIFFFile::ReadChunk(int chunk_index, void *data)
+void RIFFFile::ReadChunk(size_t chunk_index, void *data)
 {
     RIFFDirEntry entry;
 
     entry = GetDirectoryEntry(chunk_index);
     _lseeki64(fd, entry.offset, SEEK_SET);
-    read(fd, data, entry.length);
+
+	__int64 len = entry.length;
+
+	while (len != 0)
+	{
+		int l = len >= INT_MAX ? INT_MAX : (int)len;
+	    read(fd, data, l);
+
+		len -= l;
+	}
 }
