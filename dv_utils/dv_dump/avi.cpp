@@ -310,7 +310,7 @@ int AVIFile::GetTotalFrames() const
  
 */
 
-void AVIFile::ParseList(int parent)
+void AVIFile::ParseList(size_t parent)
 {
     FOURCC      type;
     FOURCC      name;

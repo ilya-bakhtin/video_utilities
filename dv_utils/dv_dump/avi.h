@@ -136,7 +136,7 @@ typedef struct
         DWORD	dwOffset;
         DWORD	dwSize;
     }
-    aIndex[20000];
+    aIndex[40000];
     DWORD	nEntriesInUse;
 }
 AVISimpleIndex;
@@ -162,7 +162,7 @@ public:
     virtual int GetDVFrameInfo(__int64 &offset, int &size, unsigned int frameNum);
     virtual int GetDVFrame(Frame &frame, int frameNum, bool& is_drop);
     virtual int GetTotalFrames() const;
-    virtual void ParseList(int parent);
+    virtual void ParseList(size_t parent);
     virtual void ParseRIFF(void);
     virtual void ReadIndex(void);
 	virtual bool isOpenDML(void);
