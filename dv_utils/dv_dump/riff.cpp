@@ -126,7 +126,7 @@ RIFFFile& RIFFFile::operator=(const RIFFFile& riff)
 
 bool RIFFFile::Open(const char *s)
 {
-    fd = _open(s, _O_BINARY | _O_RDONLY | _O_RANDOM);
+    fd = _open(s, _O_BINARY | _O_RDONLY /*| _O_RANDOM*/);
 
     if (fd == -1)
         return false;
