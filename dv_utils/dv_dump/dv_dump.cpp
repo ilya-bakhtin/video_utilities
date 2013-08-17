@@ -17,7 +17,6 @@ static bool ignore_date = false;
 struct TheNode
 {
 	time_t	_recDate;
-//	int		recDatFrm;
 	time_t	_tmCode;
 	int		frame;
 };
@@ -32,38 +31,9 @@ struct TheSegment
 
 typedef std::list<TheSegment> SegList;
 
-/*
-static bool operator< (const struct tm & l, const struct tm & r)
-{
-	return l.tm_year < r.tm_year || (l.tm_year == r.tm_year && l.tm_yday < r.tm_yday) || (l.tm_yday == r.tm_yday && l.tm_hour < r.tm_hour) ||
-			(l.tm_hour == r.tm_hour && l.tm_min < r.tm_min) || (l.tm_min == r.tm_min && l.tm_sec < r.tm_sec);
-}
-
-static bool tcLess(const struct tm & l, const struct tm & r)
-{
-	return l.tm_hour < r.tm_hour || (l.tm_hour == r.tm_hour && l.tm_min < r.tm_min) || (l.tm_min == r.tm_min && l.tm_sec < r.tm_sec) || (l.tm_sec == r.tm_sec && l.tm_mday < r.tm_mday);
-}
-*/
-
 static bool operator< (const TheNode & l, const TheNode & r)
 {
 	return l._recDate < r._recDate || (l._recDate == r._recDate && l._tmCode < r._tmCode);
-//	return l._recDate < r._recDate || (l._recDate == r._recDate && (l.recDatFrm < r.recDatFrm || (l.recDatFrm == r.recDatFrm && l._tmCode < r._tmCode)));
-/*
-	if (l._recDate < r._recDate)
-		return true;
-	else if (l._recDate == r._recDate)
-	{
-		if (l.recDatFrm < r.recDatFrm)
-			return true;
-		else if (l.recDatFrm == r.recDatFrm)
-		{
-			if (l._tmCode < r._tmCode)
-				return true;
-		}
-	}
-	return false;
-*/
 }
 
 static bool operator> (const TheNode & l, const TheNode & r)
@@ -85,37 +55,6 @@ static bool operator== (const TheNode & l, const TheNode & r)
 {
 	return !(l < r) && !(r < l);
 }
-
-/*
-static int tcDiff(const struct tm & l, const struct tm & r)
-{
-	return
-	(((l.tm_hour*60 + l.tm_min) * 60 + l.tm_sec)*25 + l.tm_mday) -
-	(((r.tm_hour*60 + r.tm_min) * 60 + r.tm_sec)*25 + r.tm_mday);
-}
-
-static void tcDec(struct tm &tc)
-{
-	--tc.tm_mday;
-	if (tc.tm_mday < 0)
-	{
-		tc.tm_mday = 24;
-		--tc.tm_sec;
-		if (tc.tm_sec < 0)
-		{
-			tc.tm_sec = 59;
-			--tc.tm_min;
-			if (tc.tm_min < 0)
-			{
-				tc.tm_min = 59;
-				--tc.tm_hour;
-			}
-		}
-	}
-	assert(tc.tm_hour >= 0);
-	tc.tm_yday = tc.tm_mday;
-}
-*/
 
 static
 void AddSegment(SegList &seg_list, const TheSegment &inp_s)
@@ -549,35 +488,6 @@ int process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &fram
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-#if 0
-	char *str = "gfhjkmxbr";
-	size_t len = strlen(str);
-	md5_hash hash = calculate_md5(str, len);
-	for (int i = 0; i < sizeof(hash.hash); ++i)
-		printf("%x", hash.hash[i]);
-	printf("\n");
-	return 0;
-#endif
-
-#if 0
-std::list<int> li;
-li.push_back(0);
-li.push_back(1);
-li.push_back(2);
-for (std::list<int>::iterator i = li.begin(); i != li.end(); ++i)
-{
-	if (*i == 1)
-	{
-		li.insert(i, 99);
-	}
-}
-for (std::list<int>::iterator i = li.begin(); i != li.end(); ++i)
-{
-	printf("%d\n", *i);
-}
-return 0;
-#endif
-
 	ignore_date = argc >= 2 && std::string(argv[1]) == _T("-d");
 
 	if (argc < 2 || (ignore_date && argc < 3))
@@ -710,224 +620,4 @@ return 0;
 
 	fclose(vcf);
 	return 0;
-}
-
-static
-int matrix_test_kengury()
-{
-#define M 4
-#define N 4
-#define limit 9
-
-	int m[M][N];
-	int prod_m[M][N];
-	int min_p = INT_MAX;
-
-	int cnts[limit*(M>N?M:N)];
-
-	memset(m, 0, sizeof(m));
-	memset(prod_m, 0, sizeof(m));
-
-	int ci = 0;
-	int cj = 0;
-
-static clock_t t0 = clock();
-static clock_t t1 = 0;
-static clock_t t2 = 0;
-
-	int eq_a = 0;
-	int eq_b = 0;
-	bool eq = false;
-
-	for (;;)
-	{
-		int prod[M+N];
-//		memset(prod, 0, sizeof(prod));
-
-static int eq_cnt = 0;
-{
-	static int c0 = 0;
-	static int c1 = 0;
-	if (m[2][1] == 0)
-		++c0;
-	else if (m[2][1] == 1)
-	{
-		if (t1 == 0)
-			t1 = clock();
-		++c1;
-	}
-	else
-	{
-		t2 = clock() - t1;
-		t1 = t1 - t0;
-		printf("%d %d\n", t1, t2);
-		exit(0);
-	}
-}
-		if (!eq)
-		{
-++eq_cnt;
-			memset(cnts, 0, sizeof(cnts));
-
-			for (int pi = 0; !eq && pi < M; ++pi)
-			{
-				int s = 0;
-				int row = M-pi-1;
-				for (int pj = 0; pj < N; ++pj)
-					s += m[row][pj];
-				if (s >= min_p)
-				{
-					eq = true;
-					eq_a = eq_b = row;
-				}
-				else if (cnts[s] > 0)
-				{
-					eq = true;
-					eq_a = cnts[s] - 1;
-					eq_b = row;
-				}
-				else
-				{
-					cnts[s] = row+1;
-					prod[pi] = s;
-				}
-			}
-			for (int pi = 0; !eq && pi < N; ++pi)
-			{
-				int s = 0;
-				for (int pj = 0; pj < M; ++pj)
-					s += m[pj][pi];
-				if (s >= min_p)
-				{
-					eq = true;
-					eq_a = eq_b = M+pi;
-				}
-				else if (cnts[s] > 0)
-				{
-					eq = true;
-					eq_a = cnts[s] - 1;
-					eq_b = M+pi;
-				}
-				else
-				{
-					cnts[s] = M+pi+1;
-					prod[M+pi] = s;
-				}
-			}
-
-			if (!eq)
-			{
-				int t = 0;
-				for (int i = 0; i < M; ++i)
-					t += prod[i];
-
-				if (min_p > t)
-				{
-					min_p = t;
-					memcpy(prod_m, m, sizeof(prod_m));
-				}
-			}
-		}
-
-		bool found = false;
-		for (int i = 0; !found && i < M; ++i)
-		{
-			for (int j = 0; !found && j < N; ++j)
-			{
-				++m[i][j];
-				if (eq)
-				{
-					if (eq_a == i || eq_b == i || eq_a-M == j || eq_b-M == j)
-						eq = false;
-				}
-
-				if (m[i][j] >= min_p || m[i][j] > limit)
-				{
-					m[i][j] = 0;
-					ci = i;
-					cj = j;
-				}
-				else
-					found = true;
-			}
-		}
-		if (ci == M-1 && cj == N-1)
-			break;
-	}
-	printf("%d\n", min_p);
-	for (int i = 0; i < M; ++i)
-	{
-		for (int j = 0; j < N; ++j)
-			printf("%d ", prod_m[i][j]);
-		printf("\n");
-	}
-return 0;
-
-	for (m[0][0] = 0; m[0][0] < min_p && m[0][0] <= 9; ++m[0][0])
-	{
-		for (m[0][1] = 0; m[0][1] < min_p && m[0][1] <= 9; ++m[0][1])
-		{
-			for (m[0][2] = 0; m[0][2] < min_p && m[0][2] <= 9; ++m[0][2])
-			{
-				for (m[1][0] = 0; m[1][0] < min_p && m[1][0] <= 9; ++m[1][0])
-				{
-					for (m[1][1] = 0; m[1][1] < min_p && m[1][1] <= 9; ++m[1][1])
-					{
-						for (m[1][2] = 0; m[1][2] < min_p && m[1][2] <= 9; ++m[1][2])
-						{
-							for (m[2][0] = 0; m[2][0] < min_p && m[2][0] <= 9; ++m[2][0])
-							{
-								for (m[2][1] = 0; m[2][1] < min_p && m[2][1] <= 9; ++m[2][1])
-								{
-									for (m[2][2] = 0; m[2][2] < min_p && m[2][2] <= 9; ++m[2][2])
-									{
-
-										int prod[6];
-										memset(prod, 0, sizeof(prod));
-
-										for (int p = 0; p < 3; ++p)
-										{
-											prod[0] += m[0][p];
-											prod[1] += m[1][p];
-											prod[2] += m[2][p];
-											prod[3] += m[p][0];
-											prod[4] += m[p][1];
-											prod[5] += m[p][2];
-										}
-
-
-										bool eq = false;
-										for (int t0 = 0; !eq && t0 < 6; ++t0)
-										{
-											for (int t1 = t0+1; !eq && t1 < 6; ++t1)
-											{
-												if (prod[t0] == prod[t1])
-													eq = true;
-											}
-										}
-
-										if (!eq)
-										{
-											int t = prod[0] + prod[1] + prod[2];
-
-											if (min_p > t)
-											{
-												min_p = t;
-												memcpy(prod_m, m, sizeof(prod_m));
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	printf("%d\n", min_p);
-	printf("%d %d %d\n", prod_m[0][0], prod_m[0][1], prod_m[0][2]);
-	printf("%d %d %d\n", prod_m[1][0], prod_m[1][1], prod_m[1][2]);
-	printf("%d %d %d\n", prod_m[2][0], prod_m[2][1], prod_m[2][2]);
 }
