@@ -31,33 +31,33 @@ struct TheSegment
 
 typedef std::list<TheSegment> SegList;
 
-static bool operator< (const TheNode & l, const TheNode & r)
+static bool operator< (const TheNode& l, const TheNode& r)
 {
 	return l._recDate < r._recDate || (l._recDate == r._recDate && l._tmCode < r._tmCode);
 }
 
-static bool operator> (const TheNode & l, const TheNode & r)
+static bool operator> (const TheNode& l, const TheNode& r)
 {
 	return r < l;
 }
 
-static bool operator<= (const TheNode & l, const TheNode & r)
+static bool operator<= (const TheNode& l, const TheNode& r)
 {
 	return !(l>r);
 }
 
-static bool operator>= (const TheNode & l, const TheNode & r)
+static bool operator>= (const TheNode& l, const TheNode& r)
 {
 	return !(l<r);
 }
 
-static bool operator== (const TheNode & l, const TheNode & r)
+static bool operator== (const TheNode& l, const TheNode& r)
 {
 	return !(l < r) && !(r < l);
 }
 
 static
-void AddSegment(SegList &seg_list, const TheSegment &inp_s)
+void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 {
 	TheSegment s = inp_s;
 
@@ -173,7 +173,7 @@ md5_hash calc_hash(int avi_handle, __int64 avi_size)
 }
 
 static
-bool test_md5(const TCHAR *buf, md5_hash &hash)
+bool test_md5(const char* buf, const md5_hash& hash)
 {
 	if (strlen(buf) < 32)
 		return false;
@@ -202,7 +202,7 @@ bool test_md5(const TCHAR *buf, md5_hash &hash)
 }
 
 static
-bool get_str(char *buf, int sz_buf, FILE *f)
+bool get_str(char* buf, int sz_buf, FILE* f)
 {
 	if (fgets(buf, sz_buf, f) != buf)
 		return false;
@@ -215,7 +215,7 @@ bool get_str(char *buf, int sz_buf, FILE *f)
 }
 
 static
-bool read_or_create_digest(const TCHAR *filename, int fileno, FILE **dig_file, SegList &seg_list, int &frames)
+bool read_or_create_digest(const TCHAR* filename, int fileno, FILE** dig_file, SegList& seg_list, int& frames)
 {
 	TCHAR drv[_MAX_DRIVE];
 	TCHAR dir[_MAX_DIR];
@@ -245,7 +245,7 @@ bool read_or_create_digest(const TCHAR *filename, int fileno, FILE **dig_file, S
 
 	if (f != NULL)
 	{
-		TCHAR buf[1024];
+		char buf[1024];
 		__int64 avi_size;
 
 		if (get_str(buf, sizeof(buf), f) && stricmp(buf, signature) == 0 &&
@@ -311,7 +311,7 @@ bool read_or_create_digest(const TCHAR *filename, int fileno, FILE **dig_file, S
 }
 
 static
-int process_file(const TCHAR *filename, int fileno, SegList &seg_list, int &frames)
+int process_file(const TCHAR* filename, int fileno, SegList& seg_list, int& frames)
 {
     AVIFile avi;
 
