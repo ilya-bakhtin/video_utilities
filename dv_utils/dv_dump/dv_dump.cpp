@@ -1,6 +1,3 @@
-// dv_dump.cpp : Defines the entry point for the console application.
-//
-
 #include "stdafx.h"
 #include "assert.h"
 #include <list>
@@ -65,15 +62,15 @@ void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 	{
 		TheSegment* lb = &*i;
 
-		if (lb->e < s.b)
+		if (lb->e < s.b) // inserted is to the right; nothing to do
 			continue;
-		if (lb->b > s.e)
+		if (lb->b > s.e) // inserted is to the left
 		{
 			i = seg_list.insert(i, s);
 			return;
 		}
 
-		if (s.b < lb->b)
+		if (s.b < lb->b) // split inserted
 		{
 			TheSegment ins_s = s;
 			time_t len = lb->b._tmCode - ins_s.b._tmCode;
@@ -81,14 +78,14 @@ void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 			ins_s.e.frame = ins_s.b.frame + (int)len - 1;
 			s.b._tmCode += len;
 			s.b.frame += (int)len;
-			if (ins_s.b._recDate != ins_s.e._recDate)
+			if (ins_s.b._recDate != ins_s.e._recDate) // TODO - most likely it's not possible.
 			{
 				ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
 				s.b._recDate = s.b._recDate + len/25;
 			}
 			i = seg_list.insert(i, ins_s);
 		}
-		else if (s.b > lb->b)
+		else if (s.b > lb->b) // split current
 		{
 			TheSegment ins_s = *lb;
 			time_t len = s.b._tmCode - lb->b._tmCode;
@@ -96,21 +93,21 @@ void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 			ins_s.e.frame = ins_s.b.frame + (int)len - 1;
 			lb->b._tmCode += len;
 			lb->b.frame += (int)len;
-			if (ins_s.b._recDate != ins_s.e._recDate)
+			if (ins_s.b._recDate != ins_s.e._recDate) // TODO - most likely it's not possible.
 			{
 				ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
 				lb->b._recDate = lb->b._recDate + len/25;
 			}
 			i = seg_list.insert(i, ins_s);
 		}
-		else
+		else // s.b == lb->b
 		{
 			TheSegment ins_s = *lb;
 			time_t len = lb->e._tmCode - lb->b._tmCode + 1;
 
-			if (s.err_cnt < lb->err_cnt)
+			if (s.err_cnt < lb->err_cnt) // inserted is better
 			{
-				if (s.e < lb->e)
+				if (s.e < lb->e) // split current
 				{
 					len = s.e._tmCode - s.b._tmCode + 1;
 
@@ -118,7 +115,7 @@ void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 					ins_s.e.frame = ins_s.b.frame + (int)len - 1;
 					lb->b._tmCode += len;
 					lb->b.frame += (int)len;
-					if (ins_s.b._recDate != ins_s.e._recDate)
+					if (ins_s.b._recDate != ins_s.e._recDate) // TODO - most likely it's not possible.
 					{
 						ins_s.e._recDate = ins_s.b._recDate + (len-1)/25;
 						lb->b._recDate = lb->b._recDate + len/25;
@@ -127,12 +124,13 @@ void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 					lb = &*i;
 				}
 
+				 // overwrite current
 				lb->file = s.file;
 				lb->err_cnt = s.err_cnt;
 				lb->b = s.b;
 				lb->e._tmCode = s.b._tmCode + len - 1;
 				lb->e.frame = s.b.frame + (int)len - 1;
-				if (s.b._recDate != s.e._recDate)
+				if (s.b._recDate != s.e._recDate) // TODO - most likely it's not possible.
 					lb->e._recDate = s.b._recDate + (len-1)/25;
 
 			}
@@ -141,7 +139,7 @@ void AddSegment(SegList& seg_list, const TheSegment& inp_s)
 
 			s.b._tmCode += len;
 			s.b.frame += (int)len;
-			if (s.b._recDate != s.e._recDate)
+			if (s.b._recDate != s.e._recDate) // TODO - most likely it's not possible.
 				lb->e._recDate = s.b._recDate + len/25;
 		}
 	}
@@ -215,99 +213,113 @@ bool get_str(char* buf, int sz_buf, FILE* f)
 }
 
 static
-bool read_or_create_digest(const TCHAR* filename, int fileno, FILE** dig_file, SegList& seg_list, int& frames)
+bool calculate_file_hash(const TCHAR* filename, md5_hash& hash, __int64& real_avi_size)
+{
+	int af = _open(filename, _O_RDONLY);
+	if (af == -1)
+		return false;
+	_lseeki64(af, 0, SEEK_END);
+	real_avi_size = _telli64(af);
+	hash = calc_hash(af, real_avi_size);
+	_close(af);
+
+	return true;
+}
+
+static
+void make_digest_filename(const TCHAR* filename, TCHAR* digest_filename /*_MAX_PATH*/)
 {
 	TCHAR drv[_MAX_DRIVE];
 	TCHAR dir[_MAX_DIR];
 	TCHAR fname[_MAX_FNAME];
 	TCHAR ext[_MAX_EXT];
 
-	if (dig_file != NULL)
-		*dig_file = NULL;
-
 	_splitpath(filename, drv, dir, fname, ext);
 
-	TCHAR digest_filename[_MAX_PATH];
 	_makepath(digest_filename, drv, dir, fname, _T("digest"));
+}
 
-	__int64 real_avi_size;
-
-	int af = _open(filename, _O_RDONLY);
-	if (af == -1)
-		return false; // TODO **** FATAL
-	_lseeki64(af, 0, SEEK_END);
-	real_avi_size = _telli64(af);
-	md5_hash hash = calc_hash(af, real_avi_size);
-	_close(af);
-
-	bool res = false;
+static
+bool read_digest(const TCHAR* digest_filename,
+				 int fileno,
+				 const md5_hash& hash,
+				 const __int64& real_avi_size,
+				 int& frames,
+				 SegList& seg_list)
+{
 	FILE *f = fopen(digest_filename, _T("r"));
 
-	if (f != NULL)
+	if (f == NULL)
+		return false;
+
+	bool res = false;
+
+	char buf[1024];
+	__int64 avi_size;
+
+	if (get_str(buf, sizeof(buf), f) && stricmp(buf, signature) == 0 &&
+		get_str(buf, sizeof(buf), f) && /*stricmp(buf, filename) == 0 &&*/ // lets trust the digest
+		get_str(buf, sizeof(buf), f) && sscanf(buf, "%I64d", &avi_size) == 1 && real_avi_size == avi_size &&
+		get_str(buf, sizeof(buf), f) && test_md5(buf, hash) &&
+		get_str(buf, sizeof(buf), f) && sscanf(buf, "%d", &frames) == 1)
 	{
-		char buf[1024];
-		__int64 avi_size;
+		SegList t_seg_list;
+		bool	bad_rec = false;
 
-		if (get_str(buf, sizeof(buf), f) && stricmp(buf, signature) == 0 &&
-			get_str(buf, sizeof(buf), f) && /*stricmp(buf, filename) == 0 &&*/
-			get_str(buf, sizeof(buf), f) && sscanf(buf, "%I64d", &avi_size) == 1 && real_avi_size == avi_size &&
-			get_str(buf, sizeof(buf), f) && test_md5(buf, hash) &&
-			get_str(buf, sizeof(buf), f) && sscanf(buf, "%d", &frames) == 1)
+		while (get_str(buf, sizeof(buf), f))
 		{
-			SegList t_seg_list;
-			bool	bad_rec = false;
+			TheSegment s;
+			int cnt;
+			if (sizeof(s.b._recDate) == 4)
+				cnt = sscanf(buf, "%d %d %d %d %d %d %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt);
+			else
+				cnt = sscanf(buf, "%d %lld %lld %d %lld %lld %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt);
 
-			while (get_str(buf, sizeof(buf), f))
+			if (cnt != 7)
+				bad_rec = true;
+			else
 			{
-				TheSegment s;
-				int cnt;
-				if (sizeof(s.b._recDate) == 4)
-					cnt = sscanf(buf, "%d %d %d %d %d %d %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt);
-				else
-					cnt = sscanf(buf, "%d %lld %lld %d %lld %lld %d\n", &s.b.frame, &s.b._recDate, &s.b._tmCode, &s.e.frame, &s.e._recDate, &s.e._tmCode, &s.err_cnt);
-
-				if (cnt != 7)
-					bad_rec = true;
-				else
-				{
-					s.file = fileno;
-					AddSegment(t_seg_list, s);
-				}
-			}
-			
-			if (!bad_rec)
-			{
-				for (SegList::iterator i = t_seg_list.begin(); i != t_seg_list.end(); ++i)
-					AddSegment(seg_list, *i);
-
-				printf("digest correct\n");
-				res = true;
+				s.file = fileno;
+				AddSegment(t_seg_list, s);
 			}
 		}
+		
+		if (!bad_rec)
+		{
+			for (SegList::iterator i = t_seg_list.begin(); i != t_seg_list.end(); ++i)
+				AddSegment(seg_list, *i);
 
-		fclose(f);
-		f = NULL;
+			printf("digest correct\n");
+			res = true;
+		}
 	}
 
-	if (!res && f == NULL)
+	fclose(f);
+	f = NULL;
+
+	return res;
+}
+
+static
+FILE* create_digest_file(const TCHAR* digest_filename,
+						 const TCHAR* filename,
+						 const md5_hash& hash,
+						 const __int64& real_avi_size)
+{
+	FILE* f = fopen(digest_filename, _T("w"));
+	if (f == NULL)
+		printf("warning: can not create digest file %s\n", digest_filename);
+	else
 	{
-		f = fopen(digest_filename, _T("w"));
-		if (f == NULL)
-			return false;
 		fprintf(f, "%s\n", signature);
 		fprintf(f, "%s\n", filename);
 		fprintf(f, "%I64d\n", real_avi_size);
 		for (int i = 0; i < sizeof(hash.hash); ++i)
 			fprintf(f, "%02x", hash.hash[i]);
 		fprintf(f, "\n");
-
-		if (dig_file != NULL)
-			*dig_file = f;
-		else
-			fclose(f);
 	}
 
-	return res;
+	return f;
 }
 
 static
@@ -321,9 +333,21 @@ int process_file(const TCHAR* filename, int fileno, SegList& seg_list, int& fram
 		return 1;
 	}
 
-	FILE *digest;
- 	if (read_or_create_digest(filename, fileno, &digest, seg_list, frames))
+	md5_hash hash;
+	__int64 real_avi_size;
+	if (!calculate_file_hash(filename, hash, real_avi_size))
+	{
+		printf("calculate_file_hash: Can't open AVI File %s\n", filename);
+		return 1;
+	}
+
+	TCHAR digest_filename[_MAX_PATH];
+	make_digest_filename(filename, digest_filename);
+
+	if (read_digest(digest_filename, fileno, hash, real_avi_size, frames, seg_list))
 		return 0;
+
+	FILE *digest = create_digest_file(digest_filename, filename, hash, real_avi_size);
 
 	avi.ParseRIFF();
 	avi.ReadIndex();
@@ -508,7 +532,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	TCHAR result_filename[_MAX_PATH];
 	_makepath(result_filename, drv, dir, _T("result"), _T("vcf"));
 
-	FILE *vcf = fopen(result_filename, "w");
+	FILE *vcf = fopen(result_filename, "w"); // TODO error handling
 
 	int first_arg = ignore_date?2:1;
 	int offset = 0;
