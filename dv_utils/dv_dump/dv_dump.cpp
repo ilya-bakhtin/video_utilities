@@ -239,6 +239,24 @@ void make_digest_filename(const TCHAR* filename, TCHAR* digest_filename /*_MAX_P
 	_makepath(digest_filename, drv, dir, fname, _T("digest"));
 }
 
+class file_guard
+{
+public:
+	file_guard(FILE* f) : f_(f)	{}
+
+	~file_guard()
+	{
+		if (f_ != NULL)
+			fclose(f_);
+	}
+
+private:
+	file_guard(const file_guard&); // to prevent copy
+	file_guard& operator=(const file_guard&); // to prevent assignment
+
+	FILE* f_;
+};
+
 static
 bool read_digest(const TCHAR* digest_filename,
 				 int fileno,
@@ -251,6 +269,8 @@ bool read_digest(const TCHAR* digest_filename,
 
 	if (f == NULL)
 		return false;
+
+	file_guard fg(f);
 
 	bool res = false;
 
@@ -293,9 +313,6 @@ bool read_digest(const TCHAR* digest_filename,
 			res = true;
 		}
 	}
-
-	fclose(f);
-	f = NULL;
 
 	return res;
 }
@@ -348,6 +365,8 @@ int process_file(const TCHAR* filename, int fileno, SegList& seg_list, int& fram
 		return 0;
 
 	FILE *digest = create_digest_file(digest_filename, filename, hash, real_avi_size);
+
+	file_guard fg(digest);
 
 	avi.ParseRIFF();
 	avi.ReadIndex();
@@ -504,9 +523,6 @@ int process_file(const TCHAR* filename, int fileno, SegList& seg_list, int& fram
 		}
 	}
 
-	if (digest != NULL)
-		fclose(digest);
-
 	return 0;
 }
 
@@ -532,7 +548,15 @@ int _tmain(int argc, _TCHAR* argv[])
 	TCHAR result_filename[_MAX_PATH];
 	_makepath(result_filename, drv, dir, _T("result"), _T("vcf"));
 
-	FILE *vcf = fopen(result_filename, "w"); // TODO error handling
+	FILE *vcf = fopen(result_filename, "w");
+
+	if (vcf == NULL)
+	{
+		printf("Can't create result file %s\n", result_filename);
+		return 1;
+	}
+
+	file_guard fg(vcf);
 
 	int first_arg = ignore_date?2:1;
 	int offset = 0;
@@ -642,6 +666,5 @@ int _tmain(int argc, _TCHAR* argv[])
 	fprintf(vcf, "VirtualDub.subset.AddRange(offset_%d + %d, %d);\n", s.file, s.b.frame, seg_len);
 	st_frame += seg_len;
 
-	fclose(vcf);
 	return 0;
 }
