@@ -45,7 +45,6 @@ public:
 	}
 	~image_guard()
 	{
-		// Shutdown Gdiplus 
 		delete image_; 
 	}
 
@@ -836,7 +835,6 @@ bool options::parse_gradient_back_literal(const tstring& arg, bool& parsed)
 				offs = cp + 1;
 			}
 		}
-//std::wcout << "gradient c" << i << " " << color << std::endl;
 		if (!parse_color(color, gradient_colors_[i], _T("gradient colors back")))
 			return false;
 	}
@@ -943,7 +941,6 @@ bool options::parse_gradient_back_points(const tstring& arg, bool& parsed)
 				}
 			}
 			coord = coord.substr(1, coord.size()-2);
-std::wcout << "gradient p" << i << " " << coord << std::endl;
 			if (_stscanf(coord.c_str(), _T("%d, %d"), &gradient_points_[i].x, &gradient_points_[i].y) != 2)
 			{
 				err_msg_ = _T("can not parse gradient points parameters ") + back;
@@ -1120,12 +1117,6 @@ void usage(bool brief)
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-//	int n;
-//	int sres = sscanf("a2345678", "%x", &n);
-
-//	static LPCTSTR filename = _T("C:\\Users\\ilx\\Documents\\My_Photo\\orig_on_blue.png");
-//	static LPCTSTR filename_out = _T("C:\\Users\\ilx\\Documents\\My_Photo\\orig_on_blue_out.png");
-
 	options opt(argc, argv);
 
 	if (!opt.parse_commandline())
@@ -1300,7 +1291,6 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 			back->get_translatedRGB(out_x, out_y, R, G, B);
 
 			double a = (R*r + G*g + B*b) / back->get_denom(out_x, out_y);
-//a = b / B;
 
 			if (a < 0)
 				a = 0;
@@ -1340,8 +1330,6 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 
 			if (A == 0)
 				c.SetValue(0);
-//			else if (A == 255)
-//				c.SetValue(c.GetValue()|0xFF000000);
 			else
 			{
 				double bR, bG, bB;
