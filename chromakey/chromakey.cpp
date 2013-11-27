@@ -53,9 +53,9 @@ private:
 };
 
 static
-LPCTSTR pixel_format_name(Gdiplus::Image* img)
+LPCTSTR pixel_format_name(Gdiplus::Image& img)
 {
-	Gdiplus::PixelFormat pixel_format = img->GetPixelFormat();
+	Gdiplus::PixelFormat pixel_format = img.GetPixelFormat();
 
 	switch (pixel_format)
 	{
@@ -1113,52 +1113,12 @@ void usage(bool brief)
 		std::endl;
 }
 
-} // namespace
-
-int _tmain(int argc, _TCHAR* argv[])
+static
+int prepare_background(Gdiplus::Bitmap& in_bmp,
+					   const options& opt, std::auto_ptr<background>& back)
 {
-	options opt(argc, argv);
-
-	if (!opt.parse_commandline())
-	{
-		tcerr << _T("chromakey: ") << opt.err_msg() << std::endl;
-		if (opt.in_file().empty())
-			tcerr << _T("chromakey: Input file is not specified") << std::endl;
-		if (opt.out_file().empty())
-			tcerr << _T("chromakey: Output file is not specified") << std::endl;
-
-		usage(true);
-		return 1;
-	}
-
-	if (opt.is_help())
-	{
-		usage(false);
-		return 0;
-	}
-
-	// Start Gdiplus 
-	Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-	ULONG_PTR gdiplusToken; 
-	Gdiplus::Status res = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-	if (res != Gdiplus::Ok)
-	{
-		_ftprintf(stderr, _T("chromakey: GdiplusStartup error %d\n"), res);
-		return 1;
-	}
-	gdiplus_guard gg(gdiplusToken);
-
-	// Load the image 
-	Gdiplus::Bitmap* in_bmp = Gdiplus::Bitmap::FromFile(opt.in_file().c_str());
-	if (in_bmp == NULL)
-	{
-		_ftprintf(stderr, _T("chromakey: Can not load image file %s\n"), opt.t_in_file().c_str());
-		return 1;
-	}
-	image_guard ig(in_bmp);
-
-	UINT bw = in_bmp->GetWidth();
-	UINT bh = in_bmp->GetHeight();
+	const UINT bw = in_bmp.GetWidth();
+	const UINT bh = in_bmp.GetHeight();
 
 	_tprintf(_T("input image is %dx%d %s\n"), bw, bh, pixel_format_name(in_bmp));
 
@@ -1167,11 +1127,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	unsigned int right;
 	unsigned int bottom;
 	opt.get_crop(left, top, right, bottom);
-	if (left+right >= bw || top+bottom >= bh)
-	{
-		_ftprintf(stderr, _T("chromakey: invalid crop parameters\n"));
-		return 1;
-	}
+	// these parameters should be already validated
 
 	const unsigned int obw = bw-left-right;
 	const unsigned int obh = bh-top-bottom;
@@ -1181,8 +1137,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	double mlb;
 	double mrb;
 	opt.get_mult(mlt, mrt, mlb, mrb);
-
-	std::auto_ptr<background> back;
 
 	Gdiplus::Color back_color;
 	int_point b_point;
@@ -1204,7 +1158,7 @@ std::cout << "back point " << b_point.x << ", " << b_point.y << std::endl;
 			return 1;
 		}
 
-		in_bmp->GetPixel(b_point.x, b_point.y, &back_color);
+		in_bmp.GetPixel(b_point.x, b_point.y, &back_color);
 	}
 
 	if (bt == options::flat_color || bt == options::flat_point)
@@ -1245,7 +1199,7 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 		}
 
 		for (int i = 0; i < 4; ++i)
-			in_bmp->GetPixel(grad_points[i].x, grad_points[i].y, &grad_colors[i]);
+			in_bmp.GetPixel(grad_points[i].x, grad_points[i].y, &grad_colors[i]);
 	}
 
 	if (bt == options::flat_color || bt == options::flat_point)
@@ -1253,16 +1207,13 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 	else
 		back.reset(new background_gradient4(obw, obh, grad_colors[0]*mlt, grad_colors[1]*mrt, grad_colors[2]*mlb, grad_colors[3]*mrb));
 
-	Gdiplus::Bitmap out_bmp(obw, obh);
+	return 0;
+}
 
-	CLSID pngClsid;
-	const WCHAR* png_desc = L"image/png";
-	if (GetEncoderClsid(png_desc, &pngClsid) == -1)
-	{
-		_ftprintf(stderr, _T("Can not find encoder for %s\n"), png_desc);
-		return 1;
-	}
-
+static
+int process_bitmap(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
+				   const options& opt, const std::auto_ptr<background>& back)
+{
 	double circle_x;
 	double circle_y;
 	double circle_r;
@@ -1275,12 +1226,22 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 	Gdiplus::Color debug_color;
 	bool circle_debug = opt.get_circle_debug(debug_color);
 
+	unsigned int left;
+	unsigned int top;
+	unsigned int right;
+	unsigned int bottom;
+	opt.get_crop(left, top, right, bottom);
+	// these parameters should be already validated
+
+	const unsigned int obw = out_bmp.GetWidth();
+	const unsigned int obh = out_bmp.GetHeight();
+
 	for (UINT out_y = 0; out_y < obh; ++out_y)
 	{
 		for (UINT out_x = 0; out_x < obw; ++out_x)
 		{
 			Gdiplus::Color c;
-			in_bmp->GetPixel(out_x+left, out_y+top, &c);
+			in_bmp.GetPixel(out_x+left, out_y+top, &c);
 
 			double cR, cG, cB;
 			double r, g, b;
@@ -1363,6 +1324,91 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 
 			out_bmp.SetPixel(out_x, out_y, c);
 		}
+	}
+	return 0;
+}
+
+} // namespace
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	options opt(argc, argv);
+
+	if (!opt.parse_commandline())
+	{
+		tcerr << _T("chromakey: ") << opt.err_msg() << std::endl;
+		if (opt.in_file().empty())
+			tcerr << _T("chromakey: Input file is not specified") << std::endl;
+		if (opt.out_file().empty())
+			tcerr << _T("chromakey: Output file is not specified") << std::endl;
+
+		usage(true);
+		return 1;
+	}
+
+	if (opt.is_help())
+	{
+		usage(false);
+		return 0;
+	}
+
+	// Start Gdiplus 
+	Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+	ULONG_PTR gdiplusToken; 
+	Gdiplus::Status res = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+	if (res != Gdiplus::Ok)
+	{
+		_ftprintf(stderr, _T("chromakey: GdiplusStartup error %d\n"), res);
+		return 1;
+	}
+	gdiplus_guard gg(gdiplusToken);
+
+	// Load the image 
+	Gdiplus::Bitmap* in_bmp = Gdiplus::Bitmap::FromFile(opt.in_file().c_str());
+	if (in_bmp == NULL)
+	{
+		_ftprintf(stderr, _T("chromakey: Can not load image file %s\n"), opt.t_in_file().c_str());
+		return 1;
+	}
+	image_guard ig(in_bmp);
+
+	const UINT bw = in_bmp->GetWidth();
+	const UINT bh = in_bmp->GetHeight();
+
+	unsigned int left;
+	unsigned int top;
+	unsigned int right;
+	unsigned int bottom;
+	opt.get_crop(left, top, right, bottom);
+	if (left+right >= bw || top+bottom >= bh)
+	{
+		_ftprintf(stderr, _T("chromakey: invalid crop parameters\n"));
+		return 1;
+	}
+
+	std::auto_ptr<background> back;
+
+	if (prepare_background(*in_bmp, opt, back) != 0)
+	{
+		return 1;
+	}
+
+	const unsigned int obw = bw-left-right;
+	const unsigned int obh = bh-top-bottom;
+
+	Gdiplus::Bitmap out_bmp(obw, obh);
+
+	CLSID pngClsid;
+	const WCHAR* png_desc = L"image/png";
+	if (GetEncoderClsid(png_desc, &pngClsid) == -1)
+	{
+		_ftprintf(stderr, _T("Can not find encoder for %s\n"), png_desc);
+		return 1;
+	}
+
+	if (process_bitmap(*in_bmp, out_bmp, opt, back) != 0)
+	{
+		return 1;
 	}
 
 	out_bmp.Save(opt.out_file().c_str(), &pngClsid, NULL);

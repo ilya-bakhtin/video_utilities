@@ -1,1 +1,1 @@
-chromakey "C:\Users\ilx\Documents\My_Photo\dsc02409.jpg" "C:\Users\ilx\Documents\My_Photo\output.png" -c (400,0,900,0) -r (1370,860,710) --mult=(1.06,1.24,1,1) -R (237,2000) -d (255,0,0)
+chromakey "C:\Users\ilx\Documents\My_Photo\dsc02409.jpg" "C:\Users\ilx\Documents\My_Photo\output.png" -c (400,0,900,0) -r (1370,860,710) --mult=(1.06,1.24,1,1) -R (237,2000) -P - -d (255,0,0)
