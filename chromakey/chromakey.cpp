@@ -1211,7 +1211,7 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 }
 
 static
-int process_bitmap(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
+void prepare_alpha(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 				   const options& opt, const std::auto_ptr<background>& back)
 {
 	double circle_x;
@@ -1236,22 +1236,30 @@ int process_bitmap(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 	const unsigned int obw = out_bmp.GetWidth();
 	const unsigned int obh = out_bmp.GetHeight();
 
+//	std::vector<std::vector<double> > alpha_map;
+//	alpha_map.resize(obh);
+
 	for (UINT out_y = 0; out_y < obh; ++out_y)
 	{
+//		alpha_map[out_y].resize(obw);
+
 		for (UINT out_x = 0; out_x < obw; ++out_x)
 		{
 			Gdiplus::Color c;
 			in_bmp.GetPixel(out_x+left, out_y+top, &c);
 
-			double cR, cG, cB;
+			int CR = c.GetR();
+			int CG = c.GetG();
+			int CB = c.GetB();
 			double r, g, b;
-
-			translateRGB(c.GetR(), c.GetG(), c.GetB(), cR, cG, cB, r, g, b);
-
+			{
+				double cR, cG, cB;
+				translateRGB(CR, CG, CB, cR, cG, cB, r, g, b);
+			}
 			double R, G, B;
 			back->get_translatedRGB(out_x, out_y, R, G, B);
 
-			double a = (R*r + G*g + B*b) / back->get_denom(out_x, out_y);
+			double a = (R*r + G*g + B*b) / back->get_denom(out_x, out_y); // Normalized dot product
 
 			if (a < 0)
 				a = 0;
@@ -1273,9 +1281,9 @@ int process_bitmap(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 					if (circle_debug)
 					{
 						a = 1;
-						cR = debug_color.GetR() / 255.;
-						cG = debug_color.GetG() / 255.;
-						cB = debug_color.GetB() / 255.;
+						CR = debug_color.GetR();
+						CG = debug_color.GetG();
+						CB = debug_color.GetB();
 					}
 					else
 					{
@@ -1286,9 +1294,36 @@ int process_bitmap(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 					}
 				}
 			}
-
 			int A = round(a*255);
 
+			Gdiplus::ARGB aa = (A << 24) | (CR << 16) | (CG << 8) | CB;
+			c.SetValue(aa);
+			out_bmp.SetPixel(out_x, out_y, c);
+//			alpha_map[out_y][out_x] = a;
+		}
+	}
+}
+
+static
+void process_bitmap(Gdiplus::Bitmap& out_bmp,
+					const std::auto_ptr<background>& back)
+{
+	const unsigned int obw = out_bmp.GetWidth();
+	const unsigned int obh = out_bmp.GetHeight();
+
+	for (UINT out_y = 0; out_y < obh; ++out_y)
+	{
+		for (UINT out_x = 0; out_x < obw; ++out_x)
+		{
+			Gdiplus::Color c;
+			out_bmp.GetPixel(out_x, out_y, &c);
+			int A = c.GetA();
+			double a = A / 255.;
+			double cR, cG, cB;
+			{
+				double r, g, b;
+				translateRGB(c.GetR(), c.GetG(), c.GetB(), cR, cG, cB, r, g, b);
+			}
 			if (A == 0)
 				c.SetValue(0);
 			else
@@ -1325,7 +1360,6 @@ int process_bitmap(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 			out_bmp.SetPixel(out_x, out_y, c);
 		}
 	}
-	return 0;
 }
 
 } // namespace
@@ -1406,10 +1440,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 
-	if (process_bitmap(*in_bmp, out_bmp, opt, back) != 0)
-	{
-		return 1;
-	}
+	prepare_alpha(*in_bmp, out_bmp, opt, back);
+	process_bitmap(out_bmp, back);
 
 	out_bmp.Save(opt.out_file().c_str(), &pngClsid, NULL);
 
