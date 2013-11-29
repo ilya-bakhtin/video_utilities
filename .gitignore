@@ -1,6 +1,8 @@
 Debug
 Release
+ipch
 *.ncb
 *.suo
 *.user
-
+*.sdf
+*.opensdf

@@ -186,9 +186,13 @@ translateRGB(int iR, int iG, int iB,
 class background
 {
 public:
+//	virtual ~background() {} TODO not necessary now
+
 	virtual void getRGB(int x, int y, double& dR, double& dG, double& dB) = 0;
 	virtual void get_translatedRGB(int x, int y, double& tR, double& tG, double& tB) = 0;
 	virtual double get_denom(int x, int y) const = 0;
+
+	virtual std::auto_ptr<background> clone() const = 0;
 };
 
 class background_flat: public background
@@ -199,6 +203,8 @@ public:
 	virtual void getRGB(int x, int y, double& dR, double& dG, double& dB);
 	virtual void get_translatedRGB(int x, int y, double& tR, double& tG, double& tB);
 	virtual double get_denom(int x, int y) const;
+
+	virtual std::auto_ptr<background> clone() const;
 
 private:
 	 double dR_;
@@ -235,6 +241,11 @@ double background_flat::get_denom(int /*x*/, int /*y*/) const
 	return denom_;
 }
 
+std::auto_ptr<background> background_flat::clone() const
+{
+	return std::auto_ptr<background>(new background_flat(*this));
+}
+
 class background_gradient4: public background
 {
 public:
@@ -245,6 +256,8 @@ public:
 	virtual void getRGB(int x, int y, double& dR, double& dG, double& dB);
 	virtual void get_translatedRGB(int x, int y, double& tR, double& tG, double& tB);
 	virtual double get_denom(int x, int y) const;
+
+	virtual std::auto_ptr<background> clone() const;
 
 private:
 	int w_;
@@ -331,6 +344,11 @@ void background_gradient4::prepare_y(int y)
 	tb_[5] = tb_[1]*alpha + tb_[3]*(1-alpha);
 
 	cur_y_ = y;
+}
+
+std::auto_ptr<background> background_gradient4::clone() const
+{
+	return std::auto_ptr<background>(new background_gradient4(*this));
 }
 
 Gdiplus::Color operator* (Gdiplus::Color in,  double coeff)
@@ -1212,8 +1230,10 @@ std::cout << "gradient back point " << i << " (" << grad_points[i].x << ", " << 
 
 static
 void prepare_alpha(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
-				   const options& opt, const std::auto_ptr<background>& back)
+				   const options& opt, const background& in_back)
 {
+	std::auto_ptr<background> back(in_back.clone());
+
 	double circle_x;
 	double circle_y;
 	double circle_r;
@@ -1236,13 +1256,8 @@ void prepare_alpha(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 	const unsigned int obw = out_bmp.GetWidth();
 	const unsigned int obh = out_bmp.GetHeight();
 
-//	std::vector<std::vector<double> > alpha_map;
-//	alpha_map.resize(obh);
-
 	for (UINT out_y = 0; out_y < obh; ++out_y)
 	{
-//		alpha_map[out_y].resize(obw);
-
 		for (UINT out_x = 0; out_x < obw; ++out_x)
 		{
 			Gdiplus::Color c;
@@ -1299,15 +1314,15 @@ void prepare_alpha(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
 			Gdiplus::ARGB aa = (A << 24) | (CR << 16) | (CG << 8) | CB;
 			c.SetValue(aa);
 			out_bmp.SetPixel(out_x, out_y, c);
-//			alpha_map[out_y][out_x] = a;
 		}
 	}
 }
 
 static
-void process_bitmap(Gdiplus::Bitmap& out_bmp,
-					const std::auto_ptr<background>& back)
+void process_bitmap(Gdiplus::Bitmap& out_bmp, const background& in_back)
 {
+	std::auto_ptr<background> back(in_back.clone());
+
 	const unsigned int obw = out_bmp.GetWidth();
 	const unsigned int obh = out_bmp.GetHeight();
 
@@ -1440,8 +1455,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 
-	prepare_alpha(*in_bmp, out_bmp, opt, back);
-	process_bitmap(out_bmp, back);
+	prepare_alpha(*in_bmp, out_bmp, opt, *back);
+	process_bitmap(out_bmp, *back);
 
 	out_bmp.Save(opt.out_file().c_str(), &pngClsid, NULL);
 
