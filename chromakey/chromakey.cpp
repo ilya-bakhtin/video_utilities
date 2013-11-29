@@ -10,48 +10,75 @@
 #include "string"
 #include "vector"
 
+#include "process.h" // TODO
+#include "time.h" // TODO
+
 namespace {
 
 class guard
 {
 public:
-	guard() {}
+	guard():
+		dismissed_(false)
+	{
+	}
+
+	virtual ~guard()
+	{
+		dismiss();
+	}
+
+	void dismiss()
+	{
+		if (!dismissed_)
+		{
+			action();
+			dismissed_ = true;
+		}
+	}
+
 private:
+	bool dismissed_;
+
 	guard(const guard&);
 	guard& operator=(const guard&);
+
+	virtual void action() {}
 };
 
-class gdiplus_guard : public guard
+class gdiplus_guard: public guard
 {
 public:
 	gdiplus_guard(ULONG_PTR gdiplusToken):
 	  gdiplusToken_(gdiplusToken)
 	{
 	}
-	~gdiplus_guard()
+
+private:
+	ULONG_PTR gdiplusToken_;
+
+	virtual void action()
 	{
 		// Shutdown Gdiplus 
 		Gdiplus::GdiplusShutdown(gdiplusToken_); 
 	}
-
-private:
-	ULONG_PTR gdiplusToken_;
 };
 
-class image_guard
+class image_guard: public guard
 {
 public:
 	image_guard(Gdiplus::Image* image):
 	  image_(image)
 	{
 	}
-	~image_guard()
-	{
-		delete image_; 
-	}
 
 private:
 	Gdiplus::Image* image_;
+
+	virtual void action()
+	{
+		delete image_;
+	}
 };
 
 static
@@ -111,6 +138,7 @@ public:
 	bool get_circle(double& cx, double& cy, double& cr) const;
 	void get_circle_params(double& offset, double& bias) const;
 	bool get_circle_debug(Gdiplus::Color& debug_color) const;
+	int get_threads() const;
 
 private:
 	int argc_;
@@ -151,6 +179,7 @@ private:
 	double circle_bias_;
 	bool circle_debug_;
 	Gdiplus::Color debug_color_;
+	int threads_;
 
 	bool parse_prologue(const tstring& arg, bool& parsed, tstring* values,
 						const tstring& prm_name, const tstring& short_flag, const tstring& long_flag);
@@ -166,6 +195,7 @@ private:
 	bool parse_single_back_point(const tstring& arg, bool& parsed);
 	bool parse_gradient_back_literal(const tstring& arg, bool& parsed);
 	bool parse_gradient_back_points(const tstring& arg, bool& parsed);
+	bool parse_threads(const tstring& arg, bool& parsed);
 };
 
 options::options(int argc, const TCHAR* const* argv):
@@ -190,7 +220,8 @@ options::options(int argc, const TCHAR* const* argv):
 	circle_offset_(0),
 	circle_bias_(1000),
 	circle_debug_(false),
-	debug_color_(0, 0, 0)
+	debug_color_(0, 0, 0),
+	threads_(0)
 {
 	gradient_colors_.reserve(4);
 	gradient_points_.resize(4);
@@ -285,6 +316,9 @@ bool options::parse_commandline()
 			return false;
 
 		if (!parsed && !parse_gradient_back_points(arg, parsed))
+			return false;
+
+		if (!parsed && !parse_threads(arg, parsed))
 			return false;
 
 		if (!parsed)
@@ -712,6 +746,33 @@ bool options::parse_color(const tstring& in_color_str, Gdiplus::Color& color, co
 	return true;
 }
 
+bool options::parse_threads(const tstring& arg, bool& parsed)
+{
+	tstring threads;
+
+	if (!parse_prologue(arg, parsed, &threads, _T("threads"), _T("-t"), _T("--threads=")))
+		return false;
+
+	if (!parsed)
+		return true;
+
+	parsed = false;
+
+// TODO trim?
+	if (_stscanf(threads.c_str(), _T("%d"), &threads_) != 1)
+	{
+		err_msg_ = _T("can not parse threads parameters");
+		return false;
+	}
+
+	if (threads_ < 0)
+		threads_ = 0;
+
+	parsed = true;
+
+	return true;
+}
+
 const tstring& options::err_msg() const
 {
 	return err_msg_;
@@ -799,6 +860,11 @@ bool options::get_circle_debug(Gdiplus::Color& debug_color) const
 	return circle_debug_;
 }
 
+int options::get_threads() const
+{
+	return threads_;
+}
+
 static
 void usage(bool brief)
 {
@@ -828,10 +894,60 @@ void usage(bool brief)
 		"\t\tdefault values for (offset,bias) are (0,1000)\n" <<
 		"\t-d RGB | (R,G,B) --circle_debug=RGB | (R,G,B)\n" <<
 		"\t\tsingle RGB has to be hex, (R,G,B) must be dec" <<
+		"\t-t threads --threads=threads" <<
 		std::endl;
 }
 
 } // namespace
+
+class handles_guard: public guard
+{
+public:
+	handles_guard(const std::vector<HANDLE>& handles):
+		handles_(handles)
+	{
+	}
+
+private:
+	const std::vector<HANDLE>& handles_;
+
+	virtual void action()
+	{
+		for (size_t i = 0; i < handles_.size(); ++i)
+		{
+			if (handles_[i] != NULL)
+				::CloseHandle(handles_[i]);
+		}
+	}
+};
+
+class bits_guard: public guard
+{
+public:
+	bits_guard(Gdiplus::Bitmap& bmp, Gdiplus::BitmapData& data):
+		bmp_(bmp),
+		data_(data)
+	{
+	}
+
+private:
+	Gdiplus::Bitmap& bmp_;
+	Gdiplus::BitmapData& data_;
+
+	virtual void action()
+	{
+		bmp_.UnlockBits(&data_);
+	}
+};
+
+static
+unsigned __stdcall worker(void* arg)
+{
+	imageProcessor* proc = reinterpret_cast<imageProcessor*>(arg);
+	proc->prepare_alpha();
+	proc->process_bitmap();
+	return 0;
+}
 
 int _tmain(int argc, _TCHAR* argv[])
 {
@@ -902,16 +1018,103 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	Gdiplus::Bitmap out_bmp(obw, obh);
 
-	imageProcessor proc(*in_bmp, out_bmp, opt);
+	Gdiplus::BitmapData data_in;
+	Gdiplus::BitmapData data_out;
+	Gdiplus::Rect rect_in(0, 0, in_bmp->GetWidth(), in_bmp->GetHeight());
+	Gdiplus::Rect rect_out(0, 0, out_bmp.GetWidth(), out_bmp.GetHeight());
+	res = out_bmp.LockBits(&rect_out, Gdiplus::ImageLockModeRead|Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &data_out);
+	if (res != Gdiplus::Ok)
+	{
+		std::cerr << "Unable to lock out bmp bits" << std::endl;
+		return 1;
+	}
+	bits_guard out_data_guard(out_bmp, data_out);
+
+	res = in_bmp->LockBits(&rect_in, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &data_in);
+	if (res != Gdiplus::Ok)
+	{
+		std::cerr << "Unable to lock out bmp bits" << std::endl;
+		return 1;
+	}
+	bits_guard in_data_guard(*in_bmp, data_in);
+
+	imageProcessor proc(data_in, data_out, opt);
 	if (proc.prepare_background() != 0)
 	{
 		return 1;
 	}
 
-	proc.prepare_alpha();
-	proc.process_bitmap();
+	clock_t ct = clock();
 
+	int thrd_num = opt.get_threads();
+	if (thrd_num > MAXIMUM_WAIT_OBJECTS)
+		thrd_num = MAXIMUM_WAIT_OBJECTS; // i hope it will be quite enough
+
+	if (thrd_num > 1)
+	{
+		int n = (int)floor(sqrt((double)thrd_num));
+		thrd_num = n*n;
+
+		std::vector<imageProcessor> procs;
+		procs.resize(thrd_num, proc);
+
+		int dx = obw/n;
+		int dy = obh/n;
+//std::cout << n << " " << dx << " " << dy << " " << MAXIMUM_WAIT_OBJECTS << std::endl;
+		for (int ny = 0; ny < n; ++ny)
+		{
+			int h = ny < n-1 ? dy : (obh - ny*dy);
+
+			for (int nx = 0; nx < n; ++nx)
+			{
+				int w = nx < n-1 ? dx : (obw - nx*dx);
+//std::cout << ny*n+nx << " " << w << " " << h << std::endl;
+				procs[ny*n+nx].set_area(dx*nx, dy*ny, w, h);
+			}
+		}
+//		procs[0].set_area(0, 0, obw/2, obh/2);
+//		procs[1].set_area(obw/2, 0, obw - obw/2, obh/2);
+//		procs[2].set_area(0, obh/2, obw/2, obh - obh/2);
+//		procs[3].set_area(obw/2, obh/2, obw - obw/2, obh - obh/2);
+
+		std::vector<HANDLE> threads;
+		threads.resize(thrd_num, NULL);
+
+		handles_guard hguard(threads);
+
+		for (int i = 0; i < thrd_num; ++i)
+		{
+			threads[i] = reinterpret_cast<HANDLE>(
+				_beginthreadex(NULL, 0, worker, &procs[i], 0, NULL));
+			if (threads[i] == NULL)
+			{
+				std::cerr << "Unable to start thread" << std::endl;
+				return 1;
+			}
+		}
+
+		DWORD wr = ::WaitForMultipleObjects(thrd_num, &threads[0], true, INFINITE);
+		std::cout << "wait " << wr << std::endl;
+	}
+	else
+	{
+		proc.prepare_alpha();
+//		std::cout << "done alpha" << std::endl;
+
+		std::cout << "alpha time " << (double)(clock() - ct)/CLOCKS_PER_SEC << std::endl;
+
+		proc.process_bitmap();
+	}
+
+	std::cout << "bitmap done " << (double)(clock() - ct)/CLOCKS_PER_SEC << std::endl;
+
+	in_data_guard.dismiss();
+	out_data_guard.dismiss();
+
+	std::cout << "bits unlocked " << (double)(clock() - ct)/CLOCKS_PER_SEC << std::endl;
 	out_bmp.Save(opt.out_file().c_str(), &pngClsid, NULL);
+
+	std::cout << "total time " << (double)(clock() - ct)/CLOCKS_PER_SEC << std::endl;
 
 	return 0;
 }

@@ -1,5 +1,22 @@
 #include "StdAfx.h"
+
+#include "iostream" // TODO
+
 #include "imageProcessor.h"
+
+class background
+{
+public:
+//	virtual ~background() {} TODO not necessary now
+
+	virtual void getRGB(int x, int y, double& dR, double& dG, double& dB) = 0;
+	virtual void get_translatedRGB(int x, int y, double& tR, double& tG, double& tB) = 0;
+	virtual double get_denom(int x, int y) const = 0;
+/* TODO
+	static std::auto_ptr<background> create(img_options::back_type type);
+*/
+	virtual std::auto_ptr<background> clone() const = 0;
+};
 
 class background_flat: public background
 {
@@ -157,16 +174,43 @@ std::auto_ptr<background> background_gradient4::clone() const
 	return std::auto_ptr<background>(new background_gradient4(*this));
 }
 
-imageProcessor::imageProcessor(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
+imageProcessor::imageProcessor(Gdiplus::BitmapData& data_in, Gdiplus::BitmapData& data_out,
 							   const img_options& opt):
-	in_bmp_(in_bmp),
-	out_bmp_(out_bmp),
-	opt_(opt)
+	data_in_(data_in),
+	data_out_(data_out),
+	opt_(opt),
+	area_x_(0),
+	area_y_(0),
+	area_w_(data_out_.Width),
+	area_h_(data_out_.Height)
+{
+}
+
+imageProcessor::imageProcessor(const imageProcessor& other):
+	data_in_(other.data_in_),
+	data_out_(other.data_out_),
+	opt_(other.opt_),
+	area_x_(other.area_x_),
+	area_y_(other.area_y_),
+	area_w_(other.area_w_),
+	area_h_(other.area_h_),
+	back_(other.back_->clone())
 {
 }
 
 imageProcessor::~imageProcessor()
 {
+}
+
+imageProcessor& imageProcessor::operator=(const imageProcessor& other)
+{
+	if (this != &other)
+	{
+		this->~imageProcessor();
+		new (this) imageProcessor(other);
+	}
+
+	return *this;
 }
 
 void imageProcessor::translateRGB(int iR, int iG, int iB,
@@ -214,10 +258,8 @@ void imageProcessor::translateRGB(int iR, int iG, int iB,
 }
 
 static
-LPCTSTR pixel_format_name(Gdiplus::Image& img) // TODO should it be here?
+LPCTSTR pixel_format_name(Gdiplus::PixelFormat pixel_format) // TODO should it be here?
 {
-	Gdiplus::PixelFormat pixel_format = img.GetPixelFormat();
-
 	switch (pixel_format)
 	{
 		case PixelFormat1bppIndexed:
@@ -276,12 +318,20 @@ Gdiplus::Color operator* (Gdiplus::Color in,  double coeff)
 	return c;
 }
 
+void imageProcessor::set_area(UINT area_x, UINT area_y, UINT area_w, UINT area_h)
+{
+	area_x_ = area_x;
+	area_y_ = area_y;
+	area_w_ = area_w;
+	area_h_ = area_h;
+}
+
 int imageProcessor::prepare_background()
 {
-	const UINT bw = in_bmp_.GetWidth();
-	const UINT bh = in_bmp_.GetHeight();
+	const UINT bw = data_in_.Width;
+	const UINT bh = data_in_.Height;
 
-	_tprintf(_T("input image is %dx%d %s\n"), bw, bh, pixel_format_name(in_bmp_)); // TODO
+	_tprintf(_T("input image is %dx%d %s\n"), bw, bh, pixel_format_name(data_in_.PixelFormat)); // TODO
 
 	unsigned int left;
 	unsigned int top;
@@ -319,7 +369,10 @@ int imageProcessor::prepare_background()
 			return 1;
 		}
 
-		in_bmp_.GetPixel(b_point.x, b_point.y, &back_color);
+//		in_bmp_.GetPixel(b_point.x, b_point.y, &back_color);
+		UINT stride = abs(data_in_.Stride);
+		Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_in_.Scan0 + stride*b_point.y))[b_point.x];
+		back_color.SetValue(aa);
 	}
 
 	if (bt == img_options::flat_color || bt == img_options::flat_point)
@@ -360,7 +413,12 @@ int imageProcessor::prepare_background()
 		}
 
 		for (int i = 0; i < 4; ++i)
-			in_bmp_.GetPixel(grad_points[i].x, grad_points[i].y, &grad_colors[i]);
+		{
+//			in_bmp_.GetPixel(grad_points[i].x, grad_points[i].y, &grad_colors[i]);
+			UINT stride = abs(data_in_.Stride);
+			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_in_.Scan0 + stride*grad_points[i].y))[grad_points[i].x];
+			grad_colors[i].SetValue(aa);
+		}
 	}
 
 	if (bt == img_options::flat_color || bt == img_options::flat_point)
@@ -392,15 +450,18 @@ void imageProcessor::prepare_alpha()
 	opt_.get_crop(left, top, right, bottom);
 	// these parameters should be already validated
 
-	const unsigned int obw = out_bmp_.GetWidth();
-	const unsigned int obh = out_bmp_.GetHeight();
+//	const unsigned int obw = out_bmp_.GetWidth();
+//	const unsigned int obh = out_bmp_.GetHeight();
 
-	for (UINT out_y = 0; out_y < obh; ++out_y)
+	for (UINT out_y = area_y_; out_y < area_y_+area_h_; ++out_y)
 	{
-		for (UINT out_x = 0; out_x < obw; ++out_x)
+		for (UINT out_x = area_x_; out_x < area_x_+area_w_; ++out_x)
 		{
 			Gdiplus::Color c;
-			in_bmp_.GetPixel(out_x+left, out_y+top, &c);
+//			in_bmp_.GetPixel(out_x+left, out_y+top, &c);
+			UINT stride = abs(data_in_.Stride);
+			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_in_.Scan0 + stride*(out_y+top)))[out_x+left];
+			c.SetValue(aa);
 
 			int CR = c.GetR();
 			int CG = c.GetG();
@@ -449,25 +510,33 @@ void imageProcessor::prepare_alpha()
 				}
 			}
 			int A = round(a*255);
-
+			{
 			Gdiplus::ARGB aa = (A << 24) | (CR << 16) | (CG << 8) | CB;
 			c.SetValue(aa);
-			out_bmp_.SetPixel(out_x, out_y, c);
+//			out_bmp_.SetPixel(out_x, out_y, c);
+			UINT stride = abs(data_out_.Stride);
+			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x] = aa;
+			}
 		}
 	}
 }
 
 void imageProcessor::process_bitmap()
 {
-	const unsigned int obw = out_bmp_.GetWidth();
-	const unsigned int obh = out_bmp_.GetHeight();
+//	const unsigned int obw = data_out_.Width;
+//	const unsigned int obh = data_out_.Height;
 
-	for (UINT out_y = 0; out_y < obh; ++out_y)
+	for (UINT out_y = area_y_; out_y < area_y_+area_h_; ++out_y)
 	{
-		for (UINT out_x = 0; out_x < obw; ++out_x)
+		for (UINT out_x = area_x_; out_x < area_x_+area_w_; ++out_x)
 		{
 			Gdiplus::Color c;
-			out_bmp_.GetPixel(out_x, out_y, &c);
+
+//			out_bmp_.GetPixel(out_x, out_y, &c);
+			UINT stride = abs(data_out_.Stride);
+			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x];
+			c.SetValue(aa);
+
 			int A = c.GetA();
 			double a = A / 255.;
 			double cR, cG, cB;
@@ -476,7 +545,10 @@ void imageProcessor::process_bitmap()
 				imageProcessor::translateRGB(c.GetR(), c.GetG(), c.GetB(), cR, cG, cB, r, g, b);
 			}
 			if (A == 0)
+			{
 				c.SetValue(0);
+				aa = 0;
+			}
 			else
 			{
 				double bR, bG, bB;
@@ -504,11 +576,13 @@ void imageProcessor::process_bitmap()
 				int tg = round(xG * 255);
 				int tb = round(xB * 255);
 
-				Gdiplus::ARGB aa = (A << 24) | (tr << 16) | (tg << 8) | tb;
+				aa = (A << 24) | (tr << 16) | (tg << 8) | tb;
 				c.SetValue(aa);
 			}
 
-			out_bmp_.SetPixel(out_x, out_y, c);
+//			out_bmp_.SetPixel(out_x, out_y, c);
+			stride = abs(data_out_.Stride);
+			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x] = aa;
 		}
 	}
 }

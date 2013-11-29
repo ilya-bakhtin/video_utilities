@@ -44,43 +44,37 @@ public:
 	virtual bool get_circle_debug(Gdiplus::Color& debug_color) const = 0;
 };
 
-class background
-{
-public:
-//	virtual ~background() {} TODO not necessary now
-
-	virtual void getRGB(int x, int y, double& dR, double& dG, double& dB) = 0;
-	virtual void get_translatedRGB(int x, int y, double& tR, double& tG, double& tB) = 0;
-	virtual double get_denom(int x, int y) const = 0;
-/* TODO
-	static std::auto_ptr<background> create(img_options::back_type type);
-*/
-	virtual std::auto_ptr<background> clone() const = 0;
-};
+class background;
 
 class imageProcessor
 {
 public:
-	imageProcessor(Gdiplus::Bitmap& in_bmp, Gdiplus::Bitmap& out_bmp,
+	imageProcessor(Gdiplus::BitmapData& data_in_, Gdiplus::BitmapData& data_out_,
 				   const img_options& opt);
+	imageProcessor(const imageProcessor&);
 	~imageProcessor(void);
+	imageProcessor& operator=(const imageProcessor&);
 
 static
 void translateRGB(int iR, int iG, int iB,
 				  double &dR, double &dG, double &dB,
 				  double &tR, double &tG, double &tB);
 
+void set_area(UINT area_x, UINT area_y, UINT area_w, UINT area_h);
+
 int prepare_background();
 void prepare_alpha();
 void process_bitmap();
 
 private:
-	imageProcessor(const imageProcessor&);
-	imageProcessor& operator=(const imageProcessor&);
-
-	Gdiplus::Bitmap& in_bmp_;
-	Gdiplus::Bitmap& out_bmp_;
+	Gdiplus::BitmapData& data_in_;
+	Gdiplus::BitmapData& data_out_;
 	const img_options& opt_;
+
+	UINT area_x_;
+	UINT area_y_;
+	UINT area_w_;
+	UINT area_h_;
 
 	std::auto_ptr<background> back_;
 };
