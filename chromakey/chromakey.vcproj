@@ -175,6 +175,14 @@
 				>
 			</File>
 			<File
+				RelativePath=".\imageProcessor.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\imageProcessor.h"
+				>
+			</File>
+			<File
 				RelativePath=".\stdafx.cpp"
 				>
 				<FileConfiguration
