@@ -3,6 +3,9 @@
 #include "memory"
 #include "vector"
 
+// surely it's possible to use CPoint or Gdiplus::Point
+// however i've got a plan to get rid of Windows types
+// and make a portable solution
 class int_point
 {
 public:
@@ -21,6 +24,7 @@ public:
 	int y;
 };
 
+// img_options class provides interface to image processing parameters
 class img_options
 {
 public:
@@ -66,6 +70,8 @@ public:
 
 class background;
 
+// imageProcessor class holds private copies of objects that
+// are necessary for each tread and references to common ones
 class imageProcessor
 {
 public:
@@ -85,14 +91,26 @@ public:
 
 	void set_area(UINT area_x, UINT area_y, UINT area_w, UINT area_h);
 
+	// prepares backround object. must be called firstly from single thread
+	// before all others processing
 	int prepare_background();
+
+	// prepares alpha map. can work at different parts of image
+	// from concurrent threads
 	void prepare_alpha();
+
+
+	// calculates final bitmap based on incaming colours and calculated alpha map.
+	// can work at different parts of image from concurrent threads
 	void process_bitmap();
 
 protected:
+	// imageProcessor class may only be constructed by the imageProcessor_master
 	imageProcessor(const Gdiplus::BitmapData& data_in_, Gdiplus::BitmapData& data_out_,
 				   const img_options& opt, std::vector<std::vector<BYTE> >& alpha_map_);
 
+	// internally used by process_bitmap() to do some additional
+	// calculations at image edges
 	void adjust_border(const img_options::adjust_edge_arg& ea,
 					   UINT out_x, UINT out_y, Gdiplus::Color& c, int& A);
 
@@ -107,17 +125,20 @@ private:
 	UINT area_h_;
 
 	std::auto_ptr<background> back_;
-	std::vector<std::vector<BYTE> >& alpha_map_; // TODO other size of alpha value
+	std::vector<std::vector<BYTE> >& alpha_map_;
 };
 
+// imageProcessor class holds objects that can be used simultaneously
+// from concurrent threads
 class imageProcessor_master: public imageProcessor
 {
 public:
 	imageProcessor_master(const Gdiplus::BitmapData& data_in_, Gdiplus::BitmapData& data_out_,
 						  const img_options& opt);
 private:
+// copy CTOR and assignment are disabled
 	imageProcessor_master(const imageProcessor_master&);
 	imageProcessor_master& operator=(const imageProcessor_master&);
 
-	std::vector<std::vector<BYTE> > alpha_map_body_; // TODO other size of alpha value
+	std::vector<std::vector<BYTE> > alpha_map_body_;
 };

@@ -18,6 +18,7 @@ public:
 	virtual std::auto_ptr<background> clone() const = 0;
 };
 
+// represents monotone background
 class background_flat: public background
 {
 public:
@@ -69,6 +70,7 @@ std::auto_ptr<background> background_flat::clone() const
 	return std::auto_ptr<background>(new background_flat(*this));
 }
 
+// represents gradient background based on 4 corner points
 class background_gradient4: public background
 {
 public:
@@ -208,6 +210,7 @@ imageProcessor& imageProcessor::operator=(const imageProcessor& other)
 {
 	if (this != &other)
 	{
+// may look weird however it's quite correct
 		this->~imageProcessor();
 		new (this) imageProcessor(other);
 	}
@@ -246,6 +249,8 @@ void imageProcessor::translateRGB(int iR, int iG, int iB,
 	translateRGB(dR, dG, dB, tR, tG, tB, coeff);
 
 /*
+TODO another colour vector transform
+perhaps we'll utilize it sometime
 	double m = dR < dG ? dR : dG;
 	m = m < dB ? m : dB;
 	double M = dR > dG ? dR : dG;
@@ -470,14 +475,16 @@ void imageProcessor::prepare_alpha()
 	opt_.get_crop(left, top, right, bottom);
 	// these parameters should be already validated
 
+	const UINT stride_in = abs(data_in_.Stride);
+	const UINT stride_out = abs(data_out_.Stride);
+
 	for (UINT out_y = area_y_; out_y < area_y_+area_h_; ++out_y)
 	{
 		for (UINT out_x = area_x_; out_x < area_x_+area_w_; ++out_x)
 		{
 			Gdiplus::Color c;
 //			in_bmp_.GetPixel(out_x+left, out_y+top, &c);
-			UINT stride = abs(data_in_.Stride);
-			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_in_.Scan0 + stride*(out_y+top)))[out_x+left];
+			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_in_.Scan0 + stride_in*(out_y+top)))[out_x+left];
 			c.SetValue(aa);
 
 			int CR = c.GetR();
@@ -527,14 +534,12 @@ void imageProcessor::prepare_alpha()
 				}
 			}
 			int A = round(a*255);
-			{
-			Gdiplus::ARGB aa = (A << 24) | (CR << 16) | (CG << 8) | CB;
-			c.SetValue(aa);
+
+			aa = (A << 24) | (CR << 16) | (CG << 8) | CB;
+//			c.SetValue(aa);
 //			out_bmp_.SetPixel(out_x, out_y, c);
-			UINT stride = abs(data_out_.Stride);
-			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x] = aa;
+			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride_out*out_y))[out_x] = aa;
 			alpha_map_[out_y][out_x] = static_cast<BYTE>(A);
-			}
 		}
 	}
 }
@@ -544,6 +549,8 @@ void imageProcessor::process_bitmap()
 	const UINT obw = data_out_.Width;
 	const UINT obh = data_out_.Height;
 
+	const UINT stride_out = abs(data_out_.Stride);
+
 	for (UINT out_y = area_y_; out_y < area_y_+area_h_; ++out_y)
 	{
 		for (UINT out_x = area_x_; out_x < area_x_+area_w_; ++out_x)
@@ -551,8 +558,7 @@ void imageProcessor::process_bitmap()
 			Gdiplus::Color c;
 
 //			out_bmp_.GetPixel(out_x, out_y, &c);
-			UINT stride = abs(data_out_.Stride);
-			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x];
+			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride_out*out_y))[out_x];
 			c.SetValue(aa);
 
 			int A = alpha_map_[out_y][out_x];;
@@ -614,8 +620,7 @@ void imageProcessor::process_bitmap()
 			}
 
 //			out_bmp_.SetPixel(out_x, out_y, c);
-			stride = abs(data_out_.Stride);
-			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x] = aa;
+			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride_out*out_y))[out_x] = aa;
 		}
 	}
 }

@@ -10,11 +10,13 @@
 #include "string"
 #include "vector"
 
-#include "process.h" // TODO
+#include "process.h"
 #include "time.h" // TODO
 
 namespace {
 
+// there is much more elegant solution to create guard objects.
+// however it requires boost and i do not want to use it for this app
 class guard
 {
 public:
@@ -49,7 +51,7 @@ private:
 class gdiplus_guard: public guard
 {
 public:
-	gdiplus_guard(ULONG_PTR gdiplusToken):
+	explicit gdiplus_guard(ULONG_PTR gdiplusToken):
 	  gdiplusToken_(gdiplusToken)
 	{
 	}
@@ -67,7 +69,7 @@ private:
 class image_guard: public guard
 {
 public:
-	image_guard(Gdiplus::Image* image):
+	explicit image_guard(Gdiplus::Image* image):
 	  image_(image)
 	{
 	}
@@ -113,6 +115,7 @@ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
 	return -1;  // Failure
 }
 
+// implementation of img_options interface that got the parameters from command line
 class options: public img_options
 {
 public:
@@ -202,7 +205,7 @@ private:
 	bool parse_adjust_debug(const tstring& arg, bool& parsed);
 };
 
-}
+} // namespace
 
 img_options::adjust_edge_arg::adjust_edge_arg(
 					bool adjust_edge,
@@ -1003,8 +1006,6 @@ void usage(bool brief)
 		std::endl;
 }
 
-} // namespace
-
 class handles_guard: public guard
 {
 public:
@@ -1042,7 +1043,7 @@ private:
 class bits_guard: public guard
 {
 public:
-	bits_guard(Gdiplus::Bitmap& bmp, Gdiplus::BitmapData& data):
+	explicit bits_guard(Gdiplus::Bitmap& bmp, Gdiplus::BitmapData& data):
 		bmp_(bmp),
 		data_(data)
 	{
@@ -1058,6 +1059,7 @@ private:
 	}
 };
 
+// worker thread parameters
 struct worker_arg
 {
 	worker_arg(imageProcessor* proc, volatile LONG* threads, HANDLE second_step_enable):
@@ -1078,6 +1080,7 @@ unsigned __stdcall worker(void* arg)
 	worker_arg* a = reinterpret_cast<worker_arg*>(arg);
 	a->proc_->prepare_alpha();
 
+	// all alpha calculators have to be finished before continue
 	if (::InterlockedDecrement(a->remainder_) == 0)
 		::SetEvent(a->second_step_enable_);
 	::WaitForSingleObject(a->second_step_enable_, INFINITE);
@@ -1086,40 +1089,70 @@ unsigned __stdcall worker(void* arg)
 	return 0;
 }
 
-int _tmain(int argc, _TCHAR* argv[])
+static
+int mt_processing(int obw, int obh,
+				  const imageProcessor& proc, int thrd_num)
 {
-	options opt(argc, argv);
+	int n = (int)ceil(sqrt((double)thrd_num));
+	thrd_num = n*n;
 
-	if (!opt.parse_commandline())
+	if (thrd_num > MAXIMUM_WAIT_OBJECTS)
+		thrd_num = MAXIMUM_WAIT_OBJECTS; // i hope it will be quite enough
+
+	std::vector<imageProcessor> procs;
+	procs.resize(thrd_num, proc);
+
+	int dx = obw/n;
+	int dy = obh/n;
+	for (int ny = 0; ny < n; ++ny)
 	{
-		tcerr << _T("chromakey: ") << opt.err_msg() << std::endl;
-		if (opt.in_file().empty())
-			tcerr << _T("chromakey: Input file is not specified") << std::endl;
-		if (opt.out_file().empty())
-			tcerr << _T("chromakey: Output file is not specified") << std::endl;
+		int h = ny < n-1 ? dy : (obh - ny*dy);
 
-		usage(true);
+		for (int nx = 0; nx < n; ++nx)
+		{
+			int w = nx < n-1 ? dx : (obw - nx*dx);
+			procs[ny*n+nx].set_area(dx*nx, dy*ny, w, h);
+		}
+	}
+
+	std::vector<HANDLE> threads;
+	threads.resize(thrd_num, NULL);
+
+	handles_guard hguard(threads);
+
+	HANDLE second_step_enable = ::CreateEvent(NULL, true, false, NULL);
+	if (second_step_enable == NULL)
+	{
+		std::cerr << "Unable to create event" << std::endl;
 		return 1;
 	}
+	handles_guard eguard(second_step_enable);
 
-	if (opt.is_help())
+	volatile LONG threads_no = thrd_num;
+	std::vector<worker_arg> args;
+	args.resize(thrd_num, worker_arg(&procs[0], &threads_no, second_step_enable));
+
+	for (int i = 0; i < thrd_num; ++i)
 	{
-		usage(false);
-		return 0;
+		args[i].proc_ = &procs[i];
+		threads[i] = reinterpret_cast<HANDLE>(
+			_beginthreadex(NULL, 0, worker, &args[i], 0, NULL));
+		if (threads[i] == NULL)
+		{
+			std::cerr << "Unable to start thread" << std::endl;
+			return 1;
+		}
 	}
 
-	// Start Gdiplus 
-	Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-	ULONG_PTR gdiplusToken; 
-	Gdiplus::Status res = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-	if (res != Gdiplus::Ok)
-	{
-		_ftprintf(stderr, _T("chromakey: GdiplusStartup error %d\n"), res);
-		return 1;
-	}
-	gdiplus_guard gg(gdiplusToken);
+	::WaitForMultipleObjects(thrd_num, &threads[0], true, INFINITE);
 
-	// Load the image 
+	return 0;
+}
+
+static
+int do_convertion(const options& opt)
+{
+	// Load the image
 	Gdiplus::Bitmap* in_bmp = Gdiplus::Bitmap::FromFile(opt.in_file().c_str());
 	if (in_bmp == NULL)
 	{
@@ -1159,7 +1192,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	Gdiplus::BitmapData data_out;
 	Gdiplus::Rect rect_in(0, 0, in_bmp->GetWidth(), in_bmp->GetHeight());
 	Gdiplus::Rect rect_out(0, 0, out_bmp.GetWidth(), out_bmp.GetHeight());
-	res = out_bmp.LockBits(&rect_out, Gdiplus::ImageLockModeRead|Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &data_out);
+	Gdiplus::Status res = out_bmp.LockBits(&rect_out, Gdiplus::ImageLockModeRead|Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &data_out);
 	if (res != Gdiplus::Ok)
 	{
 		std::cerr << "Unable to lock out bmp bits" << std::endl;
@@ -1184,67 +1217,12 @@ int _tmain(int argc, _TCHAR* argv[])
 	clock_t ct = clock();
 
 	int thrd_num = opt.get_threads();
-	if (thrd_num > MAXIMUM_WAIT_OBJECTS)
-		thrd_num = MAXIMUM_WAIT_OBJECTS; // i hope it will be quite enough
 
 	if (thrd_num > 1)
 	{
-		int n = (int)floor(sqrt((double)thrd_num));
-		thrd_num = n*n;
-
-		std::vector<imageProcessor> procs;
-		procs.resize(thrd_num, proc);
-
-		int dx = obw/n;
-		int dy = obh/n;
-//std::cout << n << " " << dx << " " << dy << " " << MAXIMUM_WAIT_OBJECTS << std::endl;
-		for (int ny = 0; ny < n; ++ny)
-		{
-			int h = ny < n-1 ? dy : (obh - ny*dy);
-
-			for (int nx = 0; nx < n; ++nx)
-			{
-				int w = nx < n-1 ? dx : (obw - nx*dx);
-//std::cout << ny*n+nx << " " << w << " " << h << std::endl;
-				procs[ny*n+nx].set_area(dx*nx, dy*ny, w, h);
-			}
-		}
-//		procs[0].set_area(0, 0, obw/2, obh/2);
-//		procs[1].set_area(obw/2, 0, obw - obw/2, obh/2);
-//		procs[2].set_area(0, obh/2, obw/2, obh - obh/2);
-//		procs[3].set_area(obw/2, obh/2, obw - obw/2, obh - obh/2);
-
-		std::vector<HANDLE> threads;
-		threads.resize(thrd_num, NULL);
-
-		handles_guard hguard(threads);
-
-		HANDLE second_step_enable = ::CreateEvent(NULL, true, false, NULL);
-		if (second_step_enable == NULL)
-		{
-			std::cerr << "Unable to create event" << std::endl;
-			return 1;
-		}
-		handles_guard eguard(second_step_enable);
-
-		volatile LONG threads_no = thrd_num;
-		std::vector<worker_arg> args;
-		args.resize(thrd_num, worker_arg(&procs[0], &threads_no, second_step_enable));
-
-		for (int i = 0; i < thrd_num; ++i)
-		{
-			args[i].proc_ = &procs[i];
-			threads[i] = reinterpret_cast<HANDLE>(
-				_beginthreadex(NULL, 0, worker, &args[i], 0, NULL));
-			if (threads[i] == NULL)
-			{
-				std::cerr << "Unable to start thread" << std::endl;
-				return 1;
-			}
-		}
-
-		DWORD wr = ::WaitForMultipleObjects(thrd_num, &threads[0], true, INFINITE);
-		std::cout << "wait " << wr << std::endl;
+		int res = mt_processing(obw, obh, proc, thrd_num);
+		if (res != 0)
+			return res;
 	}
 	else
 	{
@@ -1266,4 +1244,42 @@ int _tmain(int argc, _TCHAR* argv[])
 	std::cout << "total time " << (double)(clock() - ct)/CLOCKS_PER_SEC << std::endl;
 
 	return 0;
+}
+
+} // namespace
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	options opt(argc, argv);
+
+	if (!opt.parse_commandline())
+	{
+		tcerr << _T("chromakey: ") << opt.err_msg() << std::endl;
+		if (opt.in_file().empty())
+			tcerr << _T("chromakey: Input file is not specified") << std::endl;
+		if (opt.out_file().empty())
+			tcerr << _T("chromakey: Output file is not specified") << std::endl;
+
+		usage(true);
+		return 1;
+	}
+
+	if (opt.is_help())
+	{
+		usage(false);
+		return 0;
+	}
+
+	// Start Gdiplus
+	Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+	ULONG_PTR gdiplusToken;
+	Gdiplus::Status res = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+	if (res != Gdiplus::Ok)
+	{
+		_ftprintf(stderr, _T("chromakey: GdiplusStartup error %d\n"), res);
+		return 1;
+	}
+	gdiplus_guard gg(gdiplusToken);
+
+	return do_convertion(opt);
 }
