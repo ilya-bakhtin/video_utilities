@@ -174,15 +174,16 @@ std::auto_ptr<background> background_gradient4::clone() const
 	return std::auto_ptr<background>(new background_gradient4(*this));
 }
 
-imageProcessor::imageProcessor(Gdiplus::BitmapData& data_in, Gdiplus::BitmapData& data_out,
-							   const img_options& opt):
+imageProcessor::imageProcessor(const Gdiplus::BitmapData& data_in, Gdiplus::BitmapData& data_out,
+							   const img_options& opt, std::vector<std::vector<BYTE> >& alpha_map):
 	data_in_(data_in),
 	data_out_(data_out),
 	opt_(opt),
 	area_x_(0),
 	area_y_(0),
 	area_w_(data_out_.Width),
-	area_h_(data_out_.Height)
+	area_h_(data_out_.Height),
+	alpha_map_(alpha_map)
 {
 }
 
@@ -194,7 +195,8 @@ imageProcessor::imageProcessor(const imageProcessor& other):
 	area_y_(other.area_y_),
 	area_w_(other.area_w_),
 	area_h_(other.area_h_),
-	back_(other.back_->clone())
+	back_(other.back_->clone()), // each processor must have own background object
+	alpha_map_(other.alpha_map_)
 {
 }
 
@@ -213,17 +215,35 @@ imageProcessor& imageProcessor::operator=(const imageProcessor& other)
 	return *this;
 }
 
+imageProcessor_master::imageProcessor_master(const Gdiplus::BitmapData& data_in, Gdiplus::BitmapData& data_out,
+											 const img_options& opt):
+	imageProcessor(data_in, data_out, opt, alpha_map_body_)
+{
+	alpha_map_body_.resize(data_out_.Height);
+
+	for (UINT y = 0; y < data_out_.Height; ++y)
+		alpha_map_body_[y].resize(data_out_.Width);
+}
+
+void imageProcessor::translateRGB(const double &dR, const double &dG, const double &dB,
+								  double &tR, double &tG, double &tB,
+								  double coeff)
+{
+	tR = dR - coeff * (dG + dB);
+	tG = dG - coeff * (dR + dB);
+	tB = dB - coeff * (dR + dG);
+}
+
 void imageProcessor::translateRGB(int iR, int iG, int iB,
 								  double &dR, double &dG, double &dB,
-								  double &tR, double &tG, double &tB)
+								  double &tR, double &tG, double &tB,
+								  double coeff)
 {
 	dR = iR / 255.;
 	dG = iG / 255.;
 	dB = iB / 255.;
 
-	tR = dR - 0.5 * (dG + dB);
-	tG = dG - 0.5 * (dR + dB);
-	tB = dB - 0.5 * (dR + dG);
+	translateRGB(dR, dG, dB, tR, tG, tB, coeff);
 
 /*
 	double m = dR < dG ? dR : dG;
@@ -450,9 +470,6 @@ void imageProcessor::prepare_alpha()
 	opt_.get_crop(left, top, right, bottom);
 	// these parameters should be already validated
 
-//	const unsigned int obw = out_bmp_.GetWidth();
-//	const unsigned int obh = out_bmp_.GetHeight();
-
 	for (UINT out_y = area_y_; out_y < area_y_+area_h_; ++out_y)
 	{
 		for (UINT out_x = area_x_; out_x < area_x_+area_w_; ++out_x)
@@ -516,6 +533,7 @@ void imageProcessor::prepare_alpha()
 //			out_bmp_.SetPixel(out_x, out_y, c);
 			UINT stride = abs(data_out_.Stride);
 			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x] = aa;
+			alpha_map_[out_y][out_x] = static_cast<BYTE>(A);
 			}
 		}
 	}
@@ -523,8 +541,8 @@ void imageProcessor::prepare_alpha()
 
 void imageProcessor::process_bitmap()
 {
-//	const unsigned int obw = data_out_.Width;
-//	const unsigned int obh = data_out_.Height;
+	const UINT obw = data_out_.Width;
+	const UINT obh = data_out_.Height;
 
 	for (UINT out_y = area_y_; out_y < area_y_+area_h_; ++out_y)
 	{
@@ -537,13 +555,28 @@ void imageProcessor::process_bitmap()
 			Gdiplus::ARGB aa = ((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x];
 			c.SetValue(aa);
 
-			int A = c.GetA();
+			int A = alpha_map_[out_y][out_x];;
 			double a = A / 255.;
 			double cR, cG, cB;
 			{
 				double r, g, b;
 				imageProcessor::translateRGB(c.GetR(), c.GetG(), c.GetB(), cR, cG, cB, r, g, b);
 			}
+
+			const img_options::adjust_edge_arg& ea = opt_.get_edge_arg();
+
+			if (ea.adjust_edge_ &&
+				out_x >= ea.edge_x_gap_ && out_y >= ea.edge_y_gap_ &&
+				out_x <= obw-1-ea.edge_x_gap_ && out_y <= obh-1-ea.edge_y_gap_)
+			{
+				adjust_border(ea, out_x, out_y, c, A);
+				a = A / 255.;
+				{
+					double r, g, b;
+					imageProcessor::translateRGB(c.GetR(), c.GetG(), c.GetB(), cR, cG, cB, r, g, b);
+				}
+			}
+
 			if (A == 0)
 			{
 				c.SetValue(0);
@@ -583,6 +616,83 @@ void imageProcessor::process_bitmap()
 //			out_bmp_.SetPixel(out_x, out_y, c);
 			stride = abs(data_out_.Stride);
 			((Gdiplus::ARGB*)((char*)data_out_.Scan0 + stride*out_y))[out_x] = aa;
+		}
+	}
+}
+
+void imageProcessor::adjust_border(const img_options::adjust_edge_arg& ea,
+								   UINT out_x, UINT out_y,
+								   Gdiplus::Color& c, int& A)
+{
+	static const UINT max_color = 255;
+	static const UINT alpha_threshold = round(max_color*ea.edge_thresh_);
+
+	const UINT x0 = out_x - ea.edge_x_gap_;
+	const UINT y0 = out_y - ea.edge_y_gap_;
+	const UINT x1 = out_x + ea.edge_x_gap_;
+	const UINT y1 = out_y + ea.edge_y_gap_;
+
+//	const UINT ap = alpha_map_[out_y][out_x];
+
+	const int a0 = alpha_map_[y0][x0];
+	const int a1 = alpha_map_[y0][x1];
+	const int a2 = alpha_map_[y1][x1];
+	const int a3 = alpha_map_[y1][x0];
+
+	UINT ag[6] = {
+		abs(a0-a1), abs(a1-a2), abs(a2-a3), abs(a3-a0),
+		abs(a0-a2), abs(a1-a3)
+	};
+
+	UINT max_ag = 0;
+	UINT min_ag = 255;
+
+	for (int i = 0; i < 6; ++i)
+	{
+		if (max_ag < ag[i])
+			max_ag = ag[i];
+		if (min_ag > ag[i])
+			min_ag = ag[i];
+	}
+
+	if (max_ag >= alpha_threshold)
+	{
+		if (ea.adjust_edge_dbg_)
+		{
+			A = max_color;
+			c = ea.edge_debug_color_;
+		}
+		else
+		{
+			double coeff = (double)(max_ag-alpha_threshold)/(max_color-alpha_threshold)*(0.5-ea.edge_coeff_)+0.5;
+
+			int CR = c.GetR();
+			int CG = c.GetG();
+			int CB = c.GetB();
+
+			double r, g, b;
+			{
+				double cR, cG, cB;
+				translateRGB(CR, CG, CB, cR, cG, cB, r, g, b, coeff);
+			}
+			double R, G, B;
+			double tR, tG, tB;
+			back_->getRGB(out_x, out_y, R, G, B);
+
+			translateRGB(R, G, B, tR, tG, tB, coeff);
+			double denom = tR*tR + tG*tG + tB*tB;
+
+			double na = (tR*r + tG*g + tB*b) / denom; // Normalized dot product
+
+			if (na < 0)
+				na = 0;
+			if (na > 1)
+				na = 1;
+
+			na = 1 - na;
+
+			if (A > round(na*max_color))
+				A = round(na*max_color);
 		}
 	}
 }

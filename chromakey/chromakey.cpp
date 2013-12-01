@@ -139,6 +139,7 @@ public:
 	void get_circle_params(double& offset, double& bias) const;
 	bool get_circle_debug(Gdiplus::Color& debug_color) const;
 	int get_threads() const;
+	const adjust_edge_arg& get_edge_arg() const;
 
 private:
 	int argc_;
@@ -179,7 +180,8 @@ private:
 	double circle_bias_;
 	bool circle_debug_;
 	Gdiplus::Color debug_color_;
-	int threads_;
+	unsigned int threads_;
+	adjust_edge_arg edge_arg_;
 
 	bool parse_prologue(const tstring& arg, bool& parsed, tstring* values,
 						const tstring& prm_name, const tstring& short_flag, const tstring& long_flag);
@@ -196,7 +198,31 @@ private:
 	bool parse_gradient_back_literal(const tstring& arg, bool& parsed);
 	bool parse_gradient_back_points(const tstring& arg, bool& parsed);
 	bool parse_threads(const tstring& arg, bool& parsed);
+	bool parse_adjust_params(const tstring& arg, bool& parsed);
+	bool parse_adjust_debug(const tstring& arg, bool& parsed);
 };
+
+}
+
+img_options::adjust_edge_arg::adjust_edge_arg(
+					bool adjust_edge,
+					bool adjust_edge_dbg,
+					unsigned int edge_x_gap,
+					unsigned int edge_y_gap,
+					double edge_thresh,
+					double edge_coeff,
+					Gdiplus::Color edge_debug_color):
+	adjust_edge_(adjust_edge),
+	adjust_edge_dbg_(adjust_edge_dbg),
+	edge_x_gap_(edge_x_gap),
+	edge_y_gap_(edge_y_gap),
+	edge_thresh_(edge_thresh),
+	edge_coeff_(edge_coeff),
+	edge_debug_color_(edge_debug_color)
+{
+}
+
+namespace {
 
 options::options(int argc, const TCHAR* const* argv):
 	argc_(argc),
@@ -221,7 +247,8 @@ options::options(int argc, const TCHAR* const* argv):
 	circle_bias_(1000),
 	circle_debug_(false),
 	debug_color_(0, 0, 0),
-	threads_(0)
+	threads_(0),
+	edge_arg_(false, false, 5, 5, 0.85, 0.3, Gdiplus::Color(0, 0, 0))
 {
 	gradient_colors_.reserve(4);
 	gradient_points_.resize(4);
@@ -319,6 +346,12 @@ bool options::parse_commandline()
 			return false;
 
 		if (!parsed && !parse_threads(arg, parsed))
+			return false;
+
+		if (!parsed && !parse_adjust_params(arg, parsed))
+			return false;
+
+		if (!parsed && !parse_adjust_debug(arg, parsed))
 			return false;
 
 		if (!parsed)
@@ -773,6 +806,70 @@ bool options::parse_threads(const tstring& arg, bool& parsed)
 	return true;
 }
 
+bool options::parse_adjust_params(const tstring& arg, bool& parsed)
+{
+	tstring aep;
+
+	if (!parse_prologue(arg, parsed, &aep, _T("adjust edge params"), _T("-e"), _T("--adjust_edges")))
+		return false;
+
+	if (!parsed)
+		return true;
+
+	parsed = false;
+
+// TODO trim?
+	if (aep.empty() || aep == _T("-"))
+	{
+		edge_arg_.edge_x_gap_ = 5;
+		edge_arg_.edge_y_gap_ = 5;
+		edge_arg_.edge_thresh_ = 0.85;
+		edge_arg_.edge_coeff_ = 0.3;
+	}
+	else
+	{
+		size_t f = 1;
+		if (aep[0] == _T('='))
+			++f;
+
+		aep = aep.substr(f, aep.size()-1-f);
+		if (_stscanf(aep.c_str(), _T("%d, %d, %lg, %lg"),
+					 &edge_arg_.edge_x_gap_, &edge_arg_.edge_y_gap_,
+					 &edge_arg_.edge_thresh_, &edge_arg_.edge_coeff_) != 4)
+		{
+			err_msg_ = _T("can not parse adjust edge parameters ") + aep;
+			return false;
+		}
+	}
+
+	parsed = true;
+	edge_arg_.adjust_edge_ = true;
+
+	return true;
+}
+
+bool options::parse_adjust_debug(const tstring& arg, bool& parsed)
+{
+	tstring edge_dbg;
+
+	if (!parse_prologue(arg, parsed, &edge_dbg, _T("edge debug"), _T("-g"), _T("--edge_debug=")))
+		return false;
+
+	if (!parsed)
+		return true;
+
+	parsed = false;
+
+// TODO trim?
+	if (!parse_color(edge_dbg, edge_arg_.edge_debug_color_, _T("edge debug")))
+		return false;
+
+	parsed = true;
+	edge_arg_.adjust_edge_dbg_ = true;
+
+	return true;
+}
+
 const tstring& options::err_msg() const
 {
 	return err_msg_;
@@ -865,6 +962,11 @@ int options::get_threads() const
 	return threads_;
 }
 
+const img_options::adjust_edge_arg& options::get_edge_arg() const
+{
+	return edge_arg_;
+}
+
 static
 void usage(bool brief)
 {
@@ -893,8 +995,11 @@ void usage(bool brief)
 		"\t-R (offset,bias), --circle_parameters=(offset,bias)\n" <<
 		"\t\tdefault values for (offset,bias) are (0,1000)\n" <<
 		"\t-d RGB | (R,G,B) --circle_debug=RGB | (R,G,B)\n" <<
-		"\t\tsingle RGB has to be hex, (R,G,B) must be dec" <<
-		"\t-t threads --threads=threads" <<
+		"\t\tsingle RGB has to be hex, (R,G,B) must be dec\n" <<
+		"\t-t threads --threads=threads\n" <<
+		"\t-e - | (wx,wy,threshhold,coeff), --adjust_edges<=(wx,wy,threshhold,coeff)>\n" <<
+		"\t\tdefault walues are (5,5,0.85,0.3)" <<
+		"\t-g RGB | (R,G,B) --edge_debug=RGB | (R,G,B)\n" <<
 		std::endl;
 }
 
@@ -903,20 +1008,33 @@ void usage(bool brief)
 class handles_guard: public guard
 {
 public:
-	handles_guard(const std::vector<HANDLE>& handles):
-		handles_(handles)
+	explicit handles_guard(const std::vector<HANDLE>& handles):
+		handles_(&handles),
+		handle_(NULL)
+	{
+	}
+	explicit handles_guard(HANDLE handle):
+		handles_(NULL),
+		handle_(handle)
 	{
 	}
 
 private:
-	const std::vector<HANDLE>& handles_;
+	const std::vector<HANDLE>* handles_;
+	HANDLE handle_;
 
 	virtual void action()
 	{
-		for (size_t i = 0; i < handles_.size(); ++i)
+		if (handle_ != NULL)
+			::CloseHandle(handle_);
+
+		if (handles_ != NULL)
 		{
-			if (handles_[i] != NULL)
-				::CloseHandle(handles_[i]);
+			for (size_t i = 0; i < (*handles_).size(); ++i)
+			{
+				if ((*handles_)[i] != NULL)
+					::CloseHandle((*handles_)[i]);
+			}
 		}
 	}
 };
@@ -940,12 +1058,31 @@ private:
 	}
 };
 
+struct worker_arg
+{
+	worker_arg(imageProcessor* proc, volatile LONG* threads, HANDLE second_step_enable):
+		remainder_(threads),
+		second_step_enable_(second_step_enable),
+		proc_(proc)
+	{
+	}
+
+	volatile LONG* remainder_;
+	HANDLE second_step_enable_;
+	imageProcessor* proc_;
+};
+
 static
 unsigned __stdcall worker(void* arg)
 {
-	imageProcessor* proc = reinterpret_cast<imageProcessor*>(arg);
-	proc->prepare_alpha();
-	proc->process_bitmap();
+	worker_arg* a = reinterpret_cast<worker_arg*>(arg);
+	a->proc_->prepare_alpha();
+
+	if (::InterlockedDecrement(a->remainder_) == 0)
+		::SetEvent(a->second_step_enable_);
+	::WaitForSingleObject(a->second_step_enable_, INFINITE);
+
+	a->proc_->process_bitmap();
 	return 0;
 }
 
@@ -1038,7 +1175,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 	bits_guard in_data_guard(*in_bmp, data_in);
 
-	imageProcessor proc(data_in, data_out, opt);
+	imageProcessor_master proc(data_in, data_out, opt);
 	if (proc.prepare_background() != 0)
 	{
 		return 1;
@@ -1082,10 +1219,23 @@ int _tmain(int argc, _TCHAR* argv[])
 
 		handles_guard hguard(threads);
 
+		HANDLE second_step_enable = ::CreateEvent(NULL, true, false, NULL);
+		if (second_step_enable == NULL)
+		{
+			std::cerr << "Unable to create event" << std::endl;
+			return 1;
+		}
+		handles_guard eguard(second_step_enable);
+
+		volatile LONG threads_no = thrd_num;
+		std::vector<worker_arg> args;
+		args.resize(thrd_num, worker_arg(&procs[0], &threads_no, second_step_enable));
+
 		for (int i = 0; i < thrd_num; ++i)
 		{
+			args[i].proc_ = &procs[i];
 			threads[i] = reinterpret_cast<HANDLE>(
-				_beginthreadex(NULL, 0, worker, &procs[i], 0, NULL));
+				_beginthreadex(NULL, 0, worker, &args[i], 0, NULL));
 			if (threads[i] == NULL)
 			{
 				std::cerr << "Unable to start thread" << std::endl;
@@ -1099,7 +1249,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	else
 	{
 		proc.prepare_alpha();
-//		std::cout << "done alpha" << std::endl;
 
 		std::cout << "alpha time " << (double)(clock() - ct)/CLOCKS_PER_SEC << std::endl;
 
