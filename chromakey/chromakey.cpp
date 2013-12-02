@@ -1001,7 +1001,7 @@ void usage(bool brief)
 		"\t\tsingle RGB has to be hex, (R,G,B) must be dec\n" <<
 		"\t-t threads --threads=threads\n" <<
 		"\t-e - | (wx,wy,threshhold,coeff), --adjust_edges<=(wx,wy,threshhold,coeff)>\n" <<
-		"\t\tdefault walues are (5,5,0.85,0.3)" <<
+		"\t\tdefault walues are (5,5,0.85,0.3)\n" <<
 		"\t-g RGB | (R,G,B) --edge_debug=RGB | (R,G,B)\n" <<
 		std::endl;
 }
