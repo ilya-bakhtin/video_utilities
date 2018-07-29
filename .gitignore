@@ -6,4 +6,5 @@ _UpgradeReport_Files
 *.old
 *.suo
 *.user
-
+*.sdf
+*.opensdf
