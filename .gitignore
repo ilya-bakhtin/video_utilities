@@ -1,0 +1,9 @@
+Debug
+Release
+ipch
+UpgradeLog.XML
+_UpgradeReport_Files
+*.old
+*.suo
+*.user
+
