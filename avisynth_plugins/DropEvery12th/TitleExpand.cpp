@@ -10,7 +10,6 @@
  * that can be included.
  ****************************/
 
-
 class TitleExpand : public GenericVideoFilter {   
 
 	int dframe;

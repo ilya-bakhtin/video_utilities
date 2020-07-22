@@ -12,6 +12,7 @@
  * that can be included.
  ****************************/
 
+const AVS_Linkage* AVS_linkage = 0;
 
 class DropEvery12th : public GenericVideoFilter {   
 
@@ -519,8 +520,21 @@ AVSValue __cdecl Create_DropEvery12th(AVSValue args, void* user_data, IScriptEnv
 // The following function is the function that actually registers the filter in AviSynth
 // It is called automatically, when the plugin is loaded to see which functions this filter contains.
 
+/*
 extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit2(IScriptEnvironment* env)
 {
+    env->AddFunction("DropEvery12th", "ci", Create_DropEvery12th, 0);
+    env->AddFunction("TitleExpand", "c", Create_TitleExpand, 0);
+    return "`DropEvery12th' DropEvery12th plugin";
+}
+*/
+
+extern "C" __declspec(dllexport) const char* __stdcall
+AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
+
+  /* New 2.6 requirment!!! */
+  // Save the server pointers.
+    AVS_linkage = vectors;
     env->AddFunction("DropEvery12th", "ci", Create_DropEvery12th, 0);
     env->AddFunction("TitleExpand", "c", Create_TitleExpand, 0);
     return "`DropEvery12th' DropEvery12th plugin";
