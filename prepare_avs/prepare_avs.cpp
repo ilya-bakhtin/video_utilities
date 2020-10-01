@@ -32,6 +32,8 @@ protected:
     std::string to_utf8(const _TCHAR* wname);
 
 private:
+    static const bool is_x86 = false;
+
     ScanDir(const ScanDir& other);
     ScanDir(const ScanDir&& other);
     virtual ScanDir& operator=(const ScanDir& other);
@@ -112,7 +114,10 @@ void ScanDir::save_partial_video_avs()
             continue;
         }
 
-        out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+        if (is_x86)
+            out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+        else
+            out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
         out << "LSMASHVideoSource(\"" << in_filename << "\")\n";
         out << "#ColorYUV(autogain=true)\n";
         
@@ -135,7 +140,10 @@ void ScanDir::save_video_avs(const _TCHAR* filename)
         return;
     }
 
-    out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    if (is_x86)
+        out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    else
+        out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
 
     std::string cat("last = v1");
 
@@ -172,7 +180,10 @@ void ScanDir::save_audio_avs(const _TCHAR* filename)
         return;
     }
 
-    out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    if (is_x86)
+        out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    else
+        out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
 
     std::string cat("last = v1");
 
@@ -180,11 +191,16 @@ void ScanDir::save_audio_avs(const _TCHAR* filename)
     {
         const size_t n = i - files_.begin() + 1;
 
-        out << "v" << n << " = LWLibavVideoSource(\"" << dir_ << "\\" << *i  << "\").AssumeFPS(30,1)\n";
-        out << "a" << n << " = LWLibavAudioSource(\"" << dir_ << "\\" << *i  << "\").AssumeFPS(30,1)\n";
-        out << "#v" << n << " = AudioDub(v" << n << ", a" << n << ").AssumeFPS(30,1, true).ResampleAudio(48000)\n";
-        out << "new_rate = a" << n << ".AudioRate*a" << n << ".AudioDuration/(v" << n << ".FrameCount/v" << n << ".FrameRate)\n";
-        out << "v" << n << " = AudioDub(v" << n << ", a" << n << ").AssumeSampleRate(Round(new_rate)).AssumeFPS(30,1, true).ResampleAudio(48000)\n";
+        out << "a" << n << " = LSMASHAudioSource(\"" << dir_ << "\\" << *i  << "\")\n";
+        out << "v" << n << " = LSMASHVideoSource(\"" << dir_ << "\\" << *i  << "\").AssumeFPS(30,1)\n";
+
+//        out << "new_rate = a" << n << ".AudioRate*a" << n << ".AudioDuration/(v" << n << ".FrameCount/v" << n << ".FrameRate)\n";
+        out << "new_rate = Float(a" << n <<".AudioLength)/v" << n << ".FrameCount*v" << n << ".FrameRateNumerator/v" << n << ".FrameRateDenominator\n";
+
+//        out << "v" << n << " = AudioDub(v" << n << ", a" << n << ").AssumeSampleRate(Round(new_rate)).AssumeFPS(30,1, true).ResampleAudio(48000)\n";
+        out << "a" << n << " = a" << n << ".AssumeSampleRate(Round(new_rate)).ResampleAudio(48000)\n";
+        out << "v" << n << " = AudioDub(v" << n << ", a" << n << ")\n";
+
         out << "\n";
         if (n > 1)
         {
