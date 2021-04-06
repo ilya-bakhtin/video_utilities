@@ -21,5 +21,31 @@
     <ClCompile Include="prepare_avs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="dgindex.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="s8-avs-creator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="string_utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="split_avs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="dgindex.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="s8-avs-creator.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="string_utils.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="split_avs.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

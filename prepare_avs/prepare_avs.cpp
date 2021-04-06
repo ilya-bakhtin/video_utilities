@@ -1,6 +1,9 @@
 // prepare_avs.cpp : Defines the entry point for the console application.
 //
 
+#include "dgindex.h"
+#include "s8-avs-creator.h"
+
 #include "algorithm"
 #include "fstream"
 #include "functional"
@@ -11,12 +14,6 @@
 
 #include "tchar.h"
 #include "windows.h"
-
-#ifdef UNICODE
-#define tstring wstring
-#else
-#define tstring string
-#endif
 
 class ScanDir
 {
@@ -215,29 +212,103 @@ void ScanDir::save_audio_avs(const _TCHAR* filename)
     out.close();
 }
 
+enum Mode {
+    mp4_phone = 0,
+    dgindex,
+    mux,
+    ren_mov,
+    mux_mov,
+    s8_avs,
+    split_avs,
+};
+
 int _tmain(int argc, _TCHAR* argv[])
 {
+    Mode mode = mp4_phone;
     std::tstring ext;
+    std::tstring tmpl;
     if (argc > 1)
-        ext = argv[1];
+    {
+        if (_tcscmp(_T("-dgindex"), argv[1]) == 0)
+            mode = dgindex;
+        else if (_tcscmp(_T("-mux"), argv[1]) == 0)
+            mode = mux;
+        else if (_tcscmp(_T("-ren-mov"), argv[1]) == 0)
+            mode = ren_mov;
+        else if (_tcscmp(_T("-mux-mov"), argv[1]) == 0)
+            mode = mux_mov;
+        else if (argc > 2 && _tcscmp(_T("-s8-avs"), argv[1]) == 0)
+        {
+            tmpl = argv[2];
+            mode = s8_avs;
+        }
+        else if (_tcscmp(_T("-split-avs"), argv[1]) == 0)
+            mode = split_avs;
+        else
+            ext = argv[1];
+    }
     else
         ext = _T("*.mp4");
 
     std::tstring dir;
-    if (argc > 2)
-        dir = argv[2];
-    else
+    if (mode == mp4_phone)
     {
-        DWORD dir_len = GetCurrentDirectory(0, nullptr);
-        std::vector<_TCHAR> vdir(dir_len + 1);
-        if (GetCurrentDirectory(dir_len + 1, &vdir[0]) == 0)
+        if (argc > 2)
+            dir = argv[2];
+        else
         {
-            printf("GetCurrentDirectory error %u", GetLastError());
-            return 1;
+            DWORD dir_len = GetCurrentDirectory(0, nullptr);
+            std::vector<_TCHAR> vdir(dir_len + 1);
+            if (GetCurrentDirectory(dir_len + 1, &vdir[0]) == 0)
+            {
+                printf("GetCurrentDirectory error %u", GetLastError());
+                return 1;
+            }
+            dir = &vdir[0];
         }
-        dir = &vdir[0];
+        _tprintf(_T("%s\\%s will be used\n"), dir.c_str(), ext.c_str());
     }
-    _tprintf(_T("%s\\%s will be used\n"), dir.c_str(), ext.c_str());
+
+    if (mode == dgindex)
+    {
+        DgindexScanDir sd(dir.c_str());
+        sd.scan(_T("*.mpeg"), false);
+        sd.save_dgi_render(0);
+        sd.save_dgi_render(2);
+        sd.save_avs(0);
+        return 0;
+    }
+    else if (mode == ren_mov)
+    {
+        DgindexScanDir sd(dir.c_str());
+        sd.scan(_T("*.mov"), false);
+        sd.save_avs(1);
+        sd.save_avs(2);
+        sd.save_dgi_render(1);
+        return 0;
+    }
+    else if (mode == mux)
+    {
+        DgindexScanDir sd(dir.c_str());
+        sd.scan(_T("*.mpeg"), false);
+        sd.scan(_T("*.mp2"), true);
+        sd.save_dgi_render(3);
+        return 0;
+    }
+    else if (mode == mux_mov)
+    {
+        DgindexScanDir sd(dir.c_str());
+        sd.scan(_T("*.mov"), false);
+        sd.scan(_T("*.ac3"), true);
+        sd.save_dgi_render(4);
+        return 0;
+    }
+    else if (mode == s8_avs)
+    {
+        S8AvsCreator c(tmpl.c_str(), std::cin);
+        c.process_entries();
+        return 0;
+    }
 
     ScanDir sd(dir.c_str(), ext.c_str());
     sd.save_partial_video_avs();
