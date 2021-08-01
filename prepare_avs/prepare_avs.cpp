@@ -3,6 +3,7 @@
 
 #include "dgindex.h"
 #include "s8-avs-creator.h"
+#include "split_avs.h"
 
 #include "algorithm"
 #include "fstream"
@@ -307,6 +308,12 @@ int _tmain(int argc, _TCHAR* argv[])
     {
         S8AvsCreator c(tmpl.c_str(), std::cin);
         c.process_entries();
+        return 0;
+    }
+    else if (mode == split_avs)
+    {
+        SplitAvs s;
+        s.process_file(std::cin);
         return 0;
     }
 
