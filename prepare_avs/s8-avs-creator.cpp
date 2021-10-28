@@ -77,10 +77,11 @@ void S8AvsCreator::process_entries()
         else
             sadc = "1100";
 
-        std::ofstream of(string_utils::to_tstring(clip.c_str()) + ext);
+        const tstring of_name = string_utils::to_tstring(clip.c_str()) + ext;
+        std::ofstream of(of_name);
         if (!of.is_open())
         {
-            std::cout << "Unable to open file " << template_name_ << std::endl;
+            std::wcout << "Unable to open file " << of_name << std::endl;
             return;
         }
 
