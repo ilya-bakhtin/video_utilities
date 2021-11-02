@@ -547,16 +547,24 @@ int _tmain(int argc, _TCHAR* argv[])
 	_splitpath(mfn, drv, dir, fname, ext);
 	TCHAR result_filename[_MAX_PATH];
 	_makepath(result_filename, drv, dir, _T("result"), _T("vcf"));
+	TCHAR scenes_filename[_MAX_PATH];
+	_makepath(scenes_filename, drv, dir, _T("scenes"), _T("avs"));
 
-	FILE *vcf = fopen(result_filename, "w");
-
+	FILE* const vcf = fopen(result_filename, "w");
 	if (vcf == NULL)
 	{
 		printf("Can't create result file %s\n", result_filename);
 		return 1;
 	}
-
 	file_guard fg(vcf);
+
+	FILE* const avs = fopen(scenes_filename, "w");
+	if (avs == NULL)
+	{
+		printf("Can't create avs file %s\n", scenes_filename);
+		return 1;
+	}
+	file_guard fga(avs);
 
 	int first_arg = ignore_date?2:1;
 	int offset = 0;
@@ -587,6 +595,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	int		e_h, e_m, e_s, e_f;
 	int		st_frame = 0;
 	int		seg_len;
+	time_t scene_start_time;
+	int scene_start_frame;
+	int scene_n = 0;
 
 	for (SegList::iterator i = seg_list.begin(); i != seg_list.end(); ++i)
 	{
@@ -594,9 +605,27 @@ int _tmain(int argc, _TCHAR* argv[])
 		{
 			s = *i;
 			f = false;
+			scene_start_time = s.b._recDate;
+			scene_start_frame = s.b.frame;
 		}
 		else
 		{
+			SegList::const_iterator n = i;
+			++n;
+			const bool is_last = n == seg_list.end();
+			if (i->b._recDate > s.e._recDate + 1 || is_last)
+			{
+				b_rd = *localtime(&scene_start_time);
+				strftime(b_date, sizeof(b_date), "[%Y-%m-%d %H:%M:%S]", &b_rd);
+
+//				fprintf(avs, "# %s\n", b_date);
+				fprintf(avs, "%s (%d, %d)\n\n", b_date, scene_start_frame, (!is_last ? i->b.frame - 1 : i->e.frame));
+
+				scene_start_time = i->b._recDate;
+				scene_start_frame = i->b.frame;
+				++scene_n;
+			}
+
 			if (s.file != i->file || i->b.frame != s.e.frame+1 || i->err_cnt != s.err_cnt)
 			{
 				b_rd = *localtime(&s.b._recDate); e_rd = *localtime(&s.e._recDate);
