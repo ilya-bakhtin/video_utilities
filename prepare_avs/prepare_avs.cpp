@@ -3,6 +3,7 @@
 
 #include "dgindex.h"
 #include "s8-avs-creator.h"
+#include "segment.h"
 #include "split_avs.h"
 
 #include "algorithm"
@@ -18,6 +19,8 @@
 #include "windows.h"
 
 #include <sys/stat.h>
+
+namespace prepare_avs {
 
 class ScanDir
 {
@@ -37,13 +40,21 @@ private:
 
     ScanDir(const ScanDir& other);
     ScanDir(const ScanDir&& other);
-    virtual ScanDir& operator=(const ScanDir& other);
-    virtual ScanDir& operator=(const ScanDir&& other);
+    ScanDir& operator=(const ScanDir& other);
+    ScanDir& operator=(const ScanDir&& other);
 
-    std::vector<std::string> files_;
+    std::vector<std::unique_ptr<Segment> > files_;
     std::string dir_;
     std::vector<std::string> template_;
+    std::vector<std::string> scn_template_;
+    std::vector<std::string> file_template_;
+    std::vector<std::string> avs_template_;
 
+    int timeshift_;
+
+    void add_avi_scenes();
+    void load_scenes_template(bool files);
+    void load_avs_template();
     void replace_word(std::string& str, const std::string& word, const std::string& word_new);
 };
 
@@ -55,7 +66,8 @@ std::string ScanDir::to_utf8(const _TCHAR* wname)
     return &utf8[0]; 
 }
 
-ScanDir::ScanDir(const _TCHAR* dir_name, const _TCHAR* ext)
+ScanDir::ScanDir(const _TCHAR* dir_name, const _TCHAR* ext) :
+    timeshift_(0)
 {
     WIN32_FIND_DATA FindFileData;
     HANDLE hFind;
@@ -71,32 +83,126 @@ ScanDir::ScanDir(const _TCHAR* dir_name, const _TCHAR* ext)
     else
     {
         _tprintf(_T("The first file found is %s\n"), FindFileData.cFileName);
-        files_.push_back(to_utf8(FindFileData.cFileName));
+        std::unique_ptr<Segment> seg(new SingleFileSegment(to_utf8(FindFileData.cFileName)));
+        files_.push_back(std::move(seg));
         for (; FindNextFile(hFind, &FindFileData);)
         {
             _tprintf(_T("The next file found is %s\n"), FindFileData.cFileName);
-            files_.push_back(to_utf8(FindFileData.cFileName));
+            std::unique_ptr<Segment> seg(new SingleFileSegment(to_utf8(FindFileData.cFileName)));
+            files_.push_back(std::move(seg));
         }
     }
 
-    std::sort(files_.begin(), files_.end());
+    load_scenes_template(false);
+    load_scenes_template(true);
 
-    for (std::vector<std::string>::const_iterator i = files_.begin(); i < files_.end(); ++i)
-        printf("%s\n", i->c_str());
+    add_avi_scenes();
+
+    std::sort(files_.begin(), files_.end(), [](const std::unique_ptr<Segment>& a, const std::unique_ptr<Segment>& b) -> bool {
+        return *a < *b;
+    });
+
+    for (std::vector<std::unique_ptr<Segment> >::const_iterator i = files_.begin(); i < files_.end(); ++i)
+        printf("%s %s\n", (*i)->get_time_str().c_str(), (*i)->get_name().c_str());
 }
 
 ScanDir::~ScanDir()
 {
 }
 
-ScanDir& ScanDir::operator=(const ScanDir&& other)
+void ScanDir::add_avi_scenes()
 {
-    return *this;
+    const std::string scenes_name = dir_ + "\\" + "scenes.avs";
+    struct stat sb;
+    const bool scenes = stat(scenes_name.c_str(), &sb) == 0;
+
+    if (scenes)
+    {
+        std::ifstream sc_file(scenes_name);
+        if (!sc_file.is_open())
+        {
+            std::cout << "Unable to open file " << scenes_name << std::endl;
+            return;
+        }
+
+        std::string line;
+        while (sc_file.good())
+        {
+            std::getline(sc_file, line);
+            if (!line.empty())
+            {
+                std::unique_ptr<Segment> seg(new AviFileSegment(line, timeshift_));
+                files_.push_back(std::move(seg));
+            }
+        }
+        sc_file.close();
+    }
 }
 
-ScanDir& ScanDir::operator=(const ScanDir& other)
+void ScanDir::load_scenes_template(bool files)
 {
-    return *this;
+    const std::string template_name = dir_ + "\\" + (files ? "template.files" : "template.scenes");
+
+    struct stat sb;
+    if (stat(template_name.c_str(), &sb) != 0)
+        return;
+
+    std::ifstream tmpl_file(template_name);
+    if (!tmpl_file.is_open())
+    {
+        std::cout << "Unable to open file " << template_name << std::endl;
+        return;
+    }
+
+    std::vector<std::string>& scn_template = files ? file_template_ : scn_template_;
+
+    std::string line;
+    while (tmpl_file.good())
+    {
+        std::getline(tmpl_file, line);
+        scn_template.push_back(line);
+
+        if (!files)
+        {
+            static const char timeshift[] = "#timeshift";
+
+            size_t ts = line.find(timeshift);
+            if (ts != std::string::npos)
+                sscanf(line.substr(ts + sizeof(timeshift)).c_str(), "%d", &timeshift_);
+        }
+    }
+    tmpl_file.close();
+
+    while (scn_template.back().empty())
+        scn_template.pop_back();
+}
+
+void ScanDir::load_avs_template()
+{
+    const std::string template_name = dir_ + "\\" + "template.avs";
+
+    struct stat sb;
+    if (stat(template_name.c_str(), &sb) != 0)
+        return;
+
+    std::ifstream tmpl_file(template_name);
+    if (!tmpl_file.is_open())
+    {
+        std::cout << "Unable to open file " << template_name << std::endl;
+        return;
+    }
+
+    std::string line;
+    while (tmpl_file.good())
+    {
+        std::getline(tmpl_file, line);
+        avs_template_.push_back(line);
+    }
+
+    tmpl_file.close();
+
+    while (avs_template_.back().empty())
+        avs_template_.pop_back();
 }
 
 void ScanDir::replace_word(std::string& str, const std::string& word, const std::string& word_new)
@@ -117,6 +223,8 @@ void ScanDir::save_partial_video_avs()
         std::cout << "Nothing to save" << std::endl;
         return;
     }
+
+    load_avs_template();
 
     const std::string vd_template_name = dir_ + "\\" + "template.vdscript";
     const std::string render_bat_name = dir_ + "\\" + "render.bat";
@@ -149,9 +257,12 @@ void ScanDir::save_partial_video_avs()
         }
     }
 
-    for (std::vector<std::string>::const_iterator i = files_.begin(); i < files_.end(); ++i)
+    for (std::vector<std::unique_ptr<Segment> >::const_iterator i = files_.begin(); i < files_.end(); ++i)
     {
-        const std::string in_filename(dir_ + "\\" + *i);
+        if (!(*i)->is_single())
+            continue;
+
+        const std::string in_filename(dir_ + "\\" + (*i)->get_name());
         const std::string filename(in_filename + ".avs");
 
         std::ofstream out(filename);
@@ -161,12 +272,25 @@ void ScanDir::save_partial_video_avs()
             continue;
         }
 
-        if (is_x86)
-            out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+        if (avs_template_.empty())
+        {
+            if (is_x86)
+                out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+            else
+                out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+            out << "LSMASHVideoSource(\"" << in_filename << "\")\n";
+            out << "#ColorYUV(autogain=true)\n";
+        }
         else
-            out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
-        out << "LSMASHVideoSource(\"" << in_filename << "\")\n";
-        out << "#ColorYUV(autogain=true)\n";
+        {
+            for (std::vector<std::string>::const_iterator i = avs_template_.begin(); i != avs_template_.end(); ++i)
+            {
+                std::string s = *i;
+                replace_word(s, "$$$clip$$$", in_filename);
+
+                out << s << std::endl;
+            }
+        }
         
         out.close();
 
@@ -222,18 +346,74 @@ void ScanDir::save_video_avs(const _TCHAR* filename)
         return;
     }
 
-    if (is_x86)
-        out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    const bool has_scene_start_template = !scn_template_.empty() && scn_template_.back().find("$$$start$$$") != std::string::npos;
+    const bool has_scene_end_template = !scn_template_.empty() && scn_template_.back().find("$$$end$$$") != std::string::npos;
+    const bool has_file_video_template = !file_template_.empty() && file_template_.back().find("$$$video$$$") != std::string::npos;
+    const bool has_file_audio_template = !file_template_.empty() && file_template_.back().find("$$$audio$$$") != std::string::npos;
+
+    if (file_template_.empty())
+    {
+        if (is_x86)
+            out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+        else
+            out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    }
     else
-        out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
+    {
+        for (std::vector<std::string>::const_iterator i = file_template_.begin(); i + 1 != file_template_.end(); ++i)
+            out << *i << "\n";
+    }
+
+    int timeshift = 0;
+
+    if (!scn_template_.empty())
+    {
+        for (std::vector<std::string>::const_iterator i = scn_template_.begin(); i + 1 != scn_template_.end(); ++i)
+            out << *i << "\n";
+    }
 
     std::string cat("last = v1");
 
-    for (std::vector<std::string>::const_iterator i = files_.begin(); i < files_.end(); ++i)
+    for (std::vector<std::unique_ptr<Segment> >::const_iterator i = files_.begin(); i < files_.end(); ++i)
     {
         const size_t n = i - files_.begin() + 1;
 
-        out << "v" << n << " = LWLibavVideoSource(\"" << dir_ << "\\" << *i << ".avi" << "\").AssumeFPS(30,1)\n";
+        if ((*i)->is_single())
+        {
+            if (!has_file_video_template || !has_file_audio_template)
+                out << "v" << n << " = LWLibavVideoSource(\"" << dir_ << "\\" << (*i)->get_name() << ".avi" << "\").AssumeFPS(30,1)\n";
+            else
+            {
+                std::string str(file_template_.back()); 
+                replace_word(str, "$$$video$$$", dir_ + "\\" + (*i)->get_name() + ".avi");
+                replace_word(str, "$$$audio$$$", dir_ + "\\" + (*i)->get_name());
+                out << "v" << n << " = " << str << "\n";
+            }
+        }
+        else
+        {
+            if (!has_scene_start_template || !has_scene_end_template)
+                out << "v" << n << " = " << (*i)->get_name() << "\n";
+            else
+            {
+                std::string rng((*i)->get_name());
+                size_t p0 = rng.find('(');
+                size_t p1 = rng.find(')');
+                if (p0 != std::string::npos && p1 != std::string::npos && p1 > p0)
+                {
+                    rng = rng.substr(p0 + 1, p1 - p0 - 1);
+                    size_t comma = rng.find(',');
+                    if (comma != std::string::npos)
+                    {
+                        std::string str(scn_template_.back()); 
+                        replace_word(str, "$$$start$$$", rng.substr(0, comma));
+                        replace_word(str, "$$$end$$$", rng.substr(comma + 1));
+                        out << "v" << n << " = " << str << "\n";
+                    }
+                }
+            }
+        }
+
         if (n > 1)
         {
             char buf[64];
@@ -269,12 +449,12 @@ void ScanDir::save_audio_avs(const _TCHAR* filename)
 
     std::string cat("last = v1");
 
-    for (std::vector<std::string>::const_iterator i = files_.begin(); i < files_.end(); ++i)
+    for (std::vector<std::unique_ptr<Segment> >::const_iterator i = files_.begin(); i < files_.end(); ++i)
     {
         const size_t n = i - files_.begin() + 1;
 
-        out << "a" << n << " = LSMASHAudioSource(\"" << dir_ << "\\" << *i  << "\")\n";
-        out << "v" << n << " = LSMASHVideoSource(\"" << dir_ << "\\" << *i  << "\").AssumeFPS(30,1)\n";
+        out << "a" << n << " = LSMASHAudioSource(\"" << dir_ << "\\" << (*i)->get_name()  << "\")\n";
+        out << "v" << n << " = LSMASHVideoSource(\"" << dir_ << "\\" << (*i)->get_name()  << "\").AssumeFPS(30,1)\n";
 
 //        out << "new_rate = a" << n << ".AudioRate*a" << n << ".AudioDuration/(v" << n << ".FrameCount/v" << n << ".FrameRate)\n";
         out << "new_rate = Float(a" << n <<".AudioLength)/v" << n << ".FrameCount*v" << n << ".FrameRateNumerator/v" << n << ".FrameRateDenominator\n";
@@ -306,6 +486,10 @@ enum Mode {
     s8_avs,
     split_avs,
 };
+
+} // namespace
+
+using namespace prepare_avs;
 
 int _tmain(int argc, _TCHAR* argv[])
 {

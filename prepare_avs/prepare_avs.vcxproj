@@ -82,12 +82,14 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="s8-avs-creator.cpp" />
+    <ClCompile Include="segment.cpp" />
     <ClCompile Include="split_avs.cpp" />
     <ClCompile Include="string_utils.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dgindex.h" />
     <ClInclude Include="s8-avs-creator.h" />
+    <ClInclude Include="segment.h" />
     <ClInclude Include="split_avs.h" />
     <ClInclude Include="string_utils.h" />
   </ItemGroup>

@@ -33,6 +33,9 @@
     <ClCompile Include="split_avs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="segment.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dgindex.h">
@@ -45,6 +48,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="split_avs.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="segment.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
