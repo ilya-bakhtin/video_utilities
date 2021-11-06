@@ -257,13 +257,28 @@ void ScanDir::save_partial_video_avs()
         }
     }
 
+    const std::string common_filename(dir_ + "\\" + "common.avs");
+
+    if (!avs_template_.empty())
+    {
+        std::ofstream common(common_filename);
+        if (!common.is_open())
+            std::cout << "Unable to open file " << common_filename << std::endl;
+        else
+        {
+            common << "global source_dir = \"" << dir_ << "\\\"" << std::endl;
+            common.close();
+        }
+    }
+
     for (std::vector<std::unique_ptr<Segment> >::const_iterator i = files_.begin(); i < files_.end(); ++i)
     {
         if (!(*i)->is_single())
             continue;
 
-        const std::string in_filename(dir_ + "\\" + (*i)->get_name());
-        const std::string filename(in_filename + ".avs");
+        const std::string in_filename((*i)->get_name());
+        const std::string full_filename(dir_ + "\\" + in_filename);
+        const std::string filename(full_filename + ".avs");
 
         std::ofstream out(filename);
         if (!out.is_open())
@@ -278,15 +293,17 @@ void ScanDir::save_partial_video_avs()
                 out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
             else
                 out << "LoadPlugin(\"D:\\Program Files\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
-            out << "LSMASHVideoSource(\"" << in_filename << "\")\n";
+            out << "LSMASHVideoSource(\"" << full_filename << "\")\n";
             out << "#ColorYUV(autogain=true)\n";
         }
         else
         {
+            out << "import(\"" << common_filename << "\")" << std::endl << std::endl;
+
             for (std::vector<std::string>::const_iterator i = avs_template_.begin(); i != avs_template_.end(); ++i)
             {
                 std::string s = *i;
-                replace_word(s, "$$$clip$$$", in_filename);
+                replace_word(s, "$$$clip$$$", "source_dir + \"" + in_filename + "\"");
 
                 out << s << std::endl;
             }
@@ -296,7 +313,7 @@ void ScanDir::save_partial_video_avs()
 
         if (vd_template)
         {
-            render << "\"D:\\Program Files\\VirtualDub\\vdub64.exe\" /s " + in_filename + ".vdscript" << std::endl;
+            render << "\"D:\\Program Files\\VirtualDub\\vdub64.exe\" /s " + full_filename + ".vdscript" << std::endl;
 
             std::string double_backslash_name;
             for (std::string::const_iterator i = in_filename.begin(); i != in_filename.end(); ++i)
@@ -307,7 +324,17 @@ void ScanDir::save_partial_video_avs()
                     double_backslash_name += *i;
             }
 
-            const std::string vd_name = in_filename + ".vdscript";
+            std::string dir = dir_ + "\\";
+            std::string double_backslash_dir;
+            for (std::string::const_iterator i = dir.begin(); i != dir.end(); ++i)
+            {
+                if (*i == '\\')
+                    double_backslash_dir += "\\\\";
+                else
+                    double_backslash_dir += *i;
+            }
+
+            const std::string vd_name = full_filename + ".vdscript";
             std::ofstream of(vd_name);
             if (!of.is_open())
             {
@@ -318,6 +345,7 @@ void ScanDir::save_partial_video_avs()
             for (std::vector<std::string>::const_iterator i = template_.begin(); i != template_.end(); ++i)
             {
                 std::string s = *i;
+                replace_word(s, "$$$dir$$$", double_backslash_dir);
                 replace_word(s, "$$$clip$$$", double_backslash_name);
 
                 of << s << std::endl;
@@ -345,6 +373,9 @@ void ScanDir::save_video_avs(const _TCHAR* filename)
         std::cout << "Unable to open file " << filename << std::endl;
         return;
     }
+
+    const std::string common_filename(dir_ + "\\" + "common.avs");
+    out << "import(\"" << common_filename << "\")" << std::endl << std::endl;
 
     const bool has_scene_start_template = !scn_template_.empty() && scn_template_.back().find("$$$start$$$") != std::string::npos;
     const bool has_scene_end_template = !scn_template_.empty() && scn_template_.back().find("$$$end$$$") != std::string::npos;
@@ -385,8 +416,8 @@ void ScanDir::save_video_avs(const _TCHAR* filename)
             else
             {
                 std::string str(file_template_.back()); 
-                replace_word(str, "$$$video$$$", dir_ + "\\" + (*i)->get_name() + ".avi");
-                replace_word(str, "$$$audio$$$", dir_ + "\\" + (*i)->get_name());
+                replace_word(str, "$$$video$$$", "source_dir + \"" + (*i)->get_name() + ".avi\"");
+                replace_word(str, "$$$audio$$$", "source_dir + \"" + (*i)->get_name() + "\"");
                 out << "v" << n << " = " << str << "\n";
             }
         }
