@@ -7,14 +7,17 @@
 
 #include <windows.h>
 
+#include "string_utils.h"
+
 class S8AvsCreator
 {
 public:
-    S8AvsCreator(const TCHAR* template_name, std::istream& entries_file);
+    S8AvsCreator(const tstring& dir, const tstring& template_name, std::istream& entries_file);
     void process_entries();
 
 private:
-    const TCHAR* template_name_;
+    std::string dir_;
+    std::string template_name_;
     std::istream& entries_file_;
     std::vector<std::string> template_;
 

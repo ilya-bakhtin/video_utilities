@@ -1,6 +1,8 @@
 #ifndef __SPLIT_AVS_H__
 #define __SPLIT_AVS_H__
 
+#include "string_utils.h"
+
 #include <fstream>
 #include <vector>
 
@@ -8,7 +10,7 @@ class SplitAvs
 {
 public:
     SplitAvs();
-    void process_file(std::istream& file);
+    void process_file(const tstring& filename);
 
 private:
     bool started_;

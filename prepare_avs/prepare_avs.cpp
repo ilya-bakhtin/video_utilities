@@ -18,6 +18,8 @@
 #include "tchar.h"
 #include "windows.h"
 
+#include <fcntl.h>
+#include <io.h>
 #include <sys/stat.h>
 
 namespace prepare_avs {
@@ -75,7 +77,7 @@ ScanDir::ScanDir(const _TCHAR* dir_name, const _TCHAR* ext) :
     files_.clear();
     dir_ = to_utf8(dir_name);
 
-    hFind = FindFirstFile((std::tstring(dir_name) + _T("/") + ext).c_str(), &FindFileData);
+    hFind = FindFirstFile((tstring(dir_name) + _T("/") + ext).c_str(), &FindFileData);
     std::unique_ptr<HANDLE, std::function<void (HANDLE*)> > close_guard(&hFind, [](HANDLE* h){if (*h != INVALID_HANDLE_VALUE) FindClose(*h);});
 
     if (hFind == INVALID_HANDLE_VALUE)
@@ -118,7 +120,7 @@ void ScanDir::add_avi_scenes()
 
     if (scenes)
     {
-        std::ifstream sc_file(scenes_name);
+        std::ifstream sc_file(string_utils::to_tstring(scenes_name.c_str(), CP_UTF8));
         if (!sc_file.is_open())
         {
             std::cout << "Unable to open file " << scenes_name << std::endl;
@@ -147,7 +149,7 @@ void ScanDir::load_scenes_template(bool files)
     if (stat(template_name.c_str(), &sb) != 0)
         return;
 
-    std::ifstream tmpl_file(template_name);
+    std::ifstream tmpl_file(string_utils::to_tstring(template_name.c_str(), CP_UTF8));
     if (!tmpl_file.is_open())
     {
         std::cout << "Unable to open file " << template_name << std::endl;
@@ -185,7 +187,7 @@ void ScanDir::load_avs_template()
     if (stat(template_name.c_str(), &sb) != 0)
         return;
 
-    std::ifstream tmpl_file(template_name);
+    std::ifstream tmpl_file(string_utils::to_tstring(template_name.c_str(), CP_UTF8));
     if (!tmpl_file.is_open())
     {
         std::cout << "Unable to open file " << template_name << std::endl;
@@ -234,7 +236,7 @@ void ScanDir::save_partial_video_avs()
     std::ofstream render;
     if (vd_template)
     {
-        std::ifstream tmpl(vd_template_name);
+        std::ifstream tmpl(string_utils::to_tstring(vd_template_name.c_str(), CP_UTF8));
         if (!tmpl.is_open())
         {
             std::cout << "Unable to open file " << vd_template_name << std::endl;
@@ -249,7 +251,7 @@ void ScanDir::save_partial_video_avs()
         }
         tmpl.close();
 
-        render.open(render_bat_name);
+        render.open(string_utils::to_tstring(render_bat_name.c_str(), CP_UTF8));
         if (!render.is_open())
         {
             std::cout << "Unable to open file " << render_bat_name << std::endl;
@@ -261,7 +263,7 @@ void ScanDir::save_partial_video_avs()
 
     if (!avs_template_.empty())
     {
-        std::ofstream common(common_filename);
+        std::ofstream common(string_utils::to_tstring(common_filename.c_str(), CP_UTF8));
         if (!common.is_open())
             std::cout << "Unable to open file " << common_filename << std::endl;
         else
@@ -280,7 +282,7 @@ void ScanDir::save_partial_video_avs()
         const std::string full_filename(dir_ + "\\" + in_filename);
         const std::string filename(full_filename + ".avs");
 
-        std::ofstream out(filename);
+        std::ofstream out(string_utils::to_tstring(filename.c_str(), CP_UTF8));
         if (!out.is_open())
         {
             std::cout << "Unable to open file " << filename << std::endl;
@@ -335,7 +337,7 @@ void ScanDir::save_partial_video_avs()
             }
 
             const std::string vd_name = full_filename + ".vdscript";
-            std::ofstream of(vd_name);
+            std::ofstream of(string_utils::to_tstring(vd_name.c_str(), CP_UTF8));
             if (!of.is_open())
             {
                 std::cout << "Unable to open file " << vd_name << std::endl;
@@ -525,8 +527,11 @@ using namespace prepare_avs;
 int _tmain(int argc, _TCHAR* argv[])
 {
     Mode mode = mp4_phone;
-    std::tstring ext;
-    std::tstring tmpl;
+    tstring ext;
+    tstring tmpl;
+
+    SetConsoleOutputCP(CP_UTF8);
+
     if (argc > 1)
     {
         if (_tcscmp(_T("-dgindex"), argv[1]) == 0)
@@ -537,37 +542,54 @@ int _tmain(int argc, _TCHAR* argv[])
             mode = ren_mov;
         else if (_tcscmp(_T("-mux-mov"), argv[1]) == 0)
             mode = mux_mov;
-        else if (argc > 2 && _tcscmp(_T("-s8-avs"), argv[1]) == 0)
+        else if (_tcscmp(_T("-s8-avs"), argv[1]) == 0)
         {
-            tmpl = argv[2];
-            mode = s8_avs;
+            if (argc > 2)
+            {
+                tmpl = argv[2];
+                mode = s8_avs;
+            }
+            else
+            {
+                std::cerr << "please specify template name" << std::endl;
+                exit(1);
+            }
         }
         else if (_tcscmp(_T("-split-avs"), argv[1]) == 0)
-            mode = split_avs;
+        {
+            if (argc > 2)
+            {
+                tmpl = argv[2];
+                mode = split_avs;
+            }
+            else
+            {
+                std::cerr << "please specify main avs file name" << std::endl;
+                exit(1);
+            }
+        }
         else
             ext = argv[1];
     }
     else
         ext = _T("*.mp4");
 
-    std::tstring dir;
-    if (mode == mp4_phone)
+    tstring dir;
+    if (mode == mp4_phone && argc > 2)
+        dir = argv[2];
+    else
     {
-        if (argc > 2)
-            dir = argv[2];
-        else
+        DWORD dir_len = GetCurrentDirectory(0, nullptr);
+        std::vector<_TCHAR> vdir(dir_len + 1);
+        if (GetCurrentDirectory(dir_len + 1, &vdir[0]) == 0)
         {
-            DWORD dir_len = GetCurrentDirectory(0, nullptr);
-            std::vector<_TCHAR> vdir(dir_len + 1);
-            if (GetCurrentDirectory(dir_len + 1, &vdir[0]) == 0)
-            {
-                printf("GetCurrentDirectory error %u", GetLastError());
-                return 1;
-            }
-            dir = &vdir[0];
+            printf("GetCurrentDirectory error %u", GetLastError());
+            return 1;
         }
-        _tprintf(_T("%s\\%s will be used\n"), dir.c_str(), ext.c_str());
+        dir = &vdir[0];
     }
+
+    std::cout << string_utils::to_ansi_string(dir.c_str(), CP_UTF8) << "\\" << string_utils::to_ansi_string(ext.c_str(), CP_UTF8) << " will be used" << std::endl;
 
     if (mode == dgindex)
     {
@@ -605,14 +627,14 @@ int _tmain(int argc, _TCHAR* argv[])
     }
     else if (mode == s8_avs)
     {
-        S8AvsCreator c(tmpl.c_str(), std::cin);
+        S8AvsCreator c(dir, tmpl, std::cin);
         c.process_entries();
         return 0;
     }
     else if (mode == split_avs)
     {
         SplitAvs s;
-        s.process_file(std::cin);
+        s.process_file(tmpl);
         return 0;
     }
 

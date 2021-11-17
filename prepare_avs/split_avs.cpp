@@ -14,8 +14,15 @@ SplitAvs::SplitAvs():
 {
 }
 
-void SplitAvs::process_file(std::istream& file)
+void SplitAvs::process_file(const tstring& filename)
 {
+    std::ifstream file(filename);
+    if (!file.is_open())
+    {
+        std::cout << "Unable to open file " << string_utils::to_ansi_string(filename.c_str(), CP_UTF8) << std::endl;
+        return;
+    }
+
     while (file.good())
     {
         std::string line;
@@ -77,7 +84,7 @@ void SplitAvs::process_file(std::istream& file)
                         std::cout << "Unable to open file " << buf << std::endl;
                         return;
                     }
-                    out << "import(\"11449 Bakhtin 02 N8.720p_04.mov.avs\")" << std::endl;
+                    out << "import(\"" << string_utils::to_ansi_string(filename.c_str(), CP_UTF8) << "\")" << std::endl;
 
                     for (std::vector<std::string>::const_iterator i = block_.begin(); i != block_.end(); ++i)
                         out << *i << std::endl;

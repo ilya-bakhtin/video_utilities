@@ -1,23 +1,21 @@
-#include "s8-avs-creator.h"
-
-#include "string_utils.h"
-
 #include <iostream>
 #include <string>
 
-S8AvsCreator::S8AvsCreator(const TCHAR* template_name, std::istream& entries_file):
-    template_name_(template_name),
+#include "s8-avs-creator.h"
+
+S8AvsCreator::S8AvsCreator(const tstring& dir, const tstring& template_name, std::istream& entries_file):
+    dir_(string_utils::to_ansi_string(dir.c_str(), CP_UTF8)),
+    template_name_(string_utils::to_ansi_string(template_name.c_str(), CP_UTF8)),
     entries_file_(entries_file)
 {
-
 }
 
 void S8AvsCreator::process_entries()
 {
-    std::ifstream tmpl(template_name_);
+    std::ifstream tmpl(string_utils::to_tstring(template_name_.c_str(), CP_UTF8));
     if (!tmpl.is_open())
     {
-        std::cout << "Unable to open file " << template_name_ << std::endl;
+        std::cout << "Unable to open file " << template_name_.c_str() << std::endl;
         return;
     }
 
@@ -29,11 +27,26 @@ void S8AvsCreator::process_entries()
     }
     tmpl.close();
 
-    tstring tname(template_name_);
-    const size_t p = tname.rfind(_T("."));
-    tstring ext;
+    const size_t p = template_name_.rfind(".");
+    std::string ext;
     if (p != std::string::npos)
-        ext = tname.substr(p).c_str();
+        ext = template_name_.substr(p).c_str();
+
+    const bool is_vdscript = ext == ".vdscript";
+
+    std::string dir = dir_ + "\\";
+    if (is_vdscript)
+    {
+        std::string double_backslash_dir;
+        for (std::string::const_iterator i = dir.begin(); i != dir.end(); ++i)
+        {
+            if (*i == '\\')
+                double_backslash_dir += "\\\\";
+            else
+                double_backslash_dir += *i;
+        }
+        dir = double_backslash_dir;
+    }
 
     while (entries_file_.good())
     {
@@ -77,17 +90,18 @@ void S8AvsCreator::process_entries()
         else
             sadc = "1100";
 
-        const tstring of_name = string_utils::to_tstring(clip.c_str()) + ext;
-        std::ofstream of(of_name);
+        const std::string of_name = clip + ext;
+        std::ofstream of(string_utils::to_tstring(of_name.c_str(), CP_UTF8));
         if (!of.is_open())
         {
-            std::wcout << "Unable to open file " << of_name << std::endl;
+            std::cout << "Unable to open file " << of_name << std::endl;
             return;
         }
 
         for (std::vector<std::string>::const_iterator i = template_.begin(); i != template_.end(); ++i)
         {
             std::string s = *i;
+            replace_word(s, "$$$dir$$$", dir);
             replace_word(s, "$$$clip$$$", clip);
             replace_word(s, "$$$sad$$$", sad);
             replace_word(s, "$$$sadc$$$", sadc);

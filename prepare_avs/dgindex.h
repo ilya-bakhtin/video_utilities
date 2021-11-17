@@ -4,13 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "tchar.h"
-
-#ifdef UNICODE
-#define tstring wstring
-#else
-#define tstring string
-#endif
+#include "string_utils.h"
 
 class DgindexScanDir
 {
@@ -32,7 +26,7 @@ protected:
 private:
     std::vector<std::string> files_;
     std::vector<std::string> aud_files_;
-    std::tstring dir_;
+    tstring dir_;
 };
 
 #endif

@@ -63,7 +63,7 @@ void DgindexScanDir::save_dgi_render(int type)
         return;
     }
 
-    std::tstring filename(type == 0 || type == 1 ? _T("render.bat") : type == 2 ? _T("dgi.bat") : _T("mux.bat"));
+    tstring filename(type == 0 || type == 1 ? _T("render.bat") : type == 2 ? _T("dgi.bat") : _T("mux.bat"));
 
     std::ofstream out(filename);
     if (!out.is_open())
