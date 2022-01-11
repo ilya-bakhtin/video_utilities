@@ -306,6 +306,7 @@ void ScanDir::save_partial_video_avs()
             {
                 std::string s = *i;
                 replace_word(s, "$$$clip$$$", "source_dir + \"" + in_filename + "\"");
+                replace_word(s, "$$$clip_name$$$", "\"" + in_filename + "\"");
 
                 out << s << std::endl;
             }
