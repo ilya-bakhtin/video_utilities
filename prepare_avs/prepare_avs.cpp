@@ -30,7 +30,7 @@ public:
     ScanDir(const _TCHAR* dir, const _TCHAR* ext);
     virtual ~ScanDir();
 
-    void save_partial_video_avs();
+    bool save_partial_video_avs(unsigned n);
     void save_video_avs(const _TCHAR* filename);
     void save_audio_avs(const _TCHAR* filename);
 
@@ -47,16 +47,14 @@ private:
 
     std::vector<std::unique_ptr<Segment> > files_;
     std::string dir_;
-    std::vector<std::string> template_;
     std::vector<std::string> scn_template_;
     std::vector<std::string> file_template_;
-    std::vector<std::string> avs_template_;
 
     int timeshift_;
 
     void add_avi_scenes();
+    bool load_template(const char* name, std::vector<std::string>& templ);
     void load_scenes_template(bool files);
-    void load_avs_template();
     void replace_word(std::string& str, const std::string& word, const std::string& word_new);
 };
 
@@ -179,34 +177,6 @@ void ScanDir::load_scenes_template(bool files)
         scn_template.pop_back();
 }
 
-void ScanDir::load_avs_template()
-{
-    const std::string template_name = dir_ + "\\" + "template.avs";
-
-    struct stat sb;
-    if (stat(template_name.c_str(), &sb) != 0)
-        return;
-
-    std::ifstream tmpl_file(string_utils::to_tstring(template_name.c_str(), CP_UTF8));
-    if (!tmpl_file.is_open())
-    {
-        std::cout << "Unable to open file " << template_name << std::endl;
-        return;
-    }
-
-    std::string line;
-    while (tmpl_file.good())
-    {
-        std::getline(tmpl_file, line);
-        avs_template_.push_back(line);
-    }
-
-    tmpl_file.close();
-
-    while (avs_template_.back().empty())
-        avs_template_.pop_back();
-}
-
 void ScanDir::replace_word(std::string& str, const std::string& word, const std::string& word_new)
 {
     for (;;)
@@ -218,50 +188,74 @@ void ScanDir::replace_word(std::string& str, const std::string& word, const std:
     }
 }
 
-void ScanDir::save_partial_video_avs()
+bool ScanDir::load_template(const char* name, std::vector<std::string>& templ)
+{
+    struct stat sb;
+    if (stat(name, &sb) != 0)
+        return false;
+
+    std::ifstream tmpl(string_utils::to_tstring(name, CP_UTF8));
+    if (!tmpl.is_open())
+    {
+        std::cout << "Unable to open file " << name << std::endl;
+        return false;
+    }
+
+    std::string line;
+    while (tmpl.good())
+    {
+        std::getline(tmpl, line);
+        templ.push_back(line);
+    }
+    tmpl.close();
+
+    while (templ.back().empty())
+        templ.pop_back();
+
+    return true;
+}
+
+bool ScanDir::save_partial_video_avs(unsigned n)
 {
     if (files_.size() == 0)
     {
         std::cout << "Nothing to save" << std::endl;
-        return;
+        return false;
     }
 
-    load_avs_template();
+    char ns[64];
+    _snprintf_s(ns, sizeof(ns), "-%u", n);
 
-    const std::string vd_template_name = dir_ + "\\" + "template.vdscript";
-    const std::string render_bat_name = dir_ + "\\" + "render.bat";
-    struct stat sb;
-    const bool vd_template = stat(vd_template_name.c_str(), &sb) == 0;
+    const std::string avs_template_name = dir_ + "\\" + "template" + (n == 0 ? "" : ns) + ".avs";
+    const std::string vd_template_name = dir_ + "\\" + "template" + (n == 0 ? "" : ns) + ".vdscript";
+    const std::string ren_template_name = dir_ + "\\" + "template" + (n == 0 ? "" : ns) + ".render";
+    const std::string render_bat_name = dir_ + "\\" + "render" + (n == 0 ? "" : ns) + ".bat";
+
+    std::vector<std::string> avs_template;
+    const bool have_avs_template = load_template(avs_template_name.c_str(), avs_template);
+
+    std::vector<std::string> vd_template;
+    const bool have_vd_template = load_template(vd_template_name.c_str(), vd_template);
+
+    std::vector<std::string> ren_template;
+    const bool have_ren_template = load_template(ren_template_name.c_str(), ren_template);
+
+    if (!have_avs_template && !have_vd_template && !have_ren_template)
+        return false;
 
     std::ofstream render;
-    if (vd_template)
+    if (have_vd_template || have_ren_template)
     {
-        std::ifstream tmpl(string_utils::to_tstring(vd_template_name.c_str(), CP_UTF8));
-        if (!tmpl.is_open())
-        {
-            std::cout << "Unable to open file " << vd_template_name << std::endl;
-            return;
-        }
-
-        std::string line;
-        while (tmpl.good())
-        {
-            std::getline(tmpl, line);
-            template_.push_back(line);
-        }
-        tmpl.close();
-
         render.open(string_utils::to_tstring(render_bat_name.c_str(), CP_UTF8));
         if (!render.is_open())
         {
             std::cout << "Unable to open file " << render_bat_name << std::endl;
-            return;
+            return false;
         }
     }
 
     const std::string common_filename(dir_ + "\\" + "common.avs");
-
-    if (!avs_template_.empty())
+    if (n == 0)
     {
         std::ofstream common(string_utils::to_tstring(common_filename.c_str(), CP_UTF8));
         if (!common.is_open())
@@ -280,7 +274,7 @@ void ScanDir::save_partial_video_avs()
 
         const std::string in_filename((*i)->get_name());
         const std::string full_filename(dir_ + "\\" + in_filename);
-        const std::string filename(full_filename + ".avs");
+        const std::string filename(full_filename + (n == 0 ? "" : ns) + ".avs");
 
         std::ofstream out(string_utils::to_tstring(filename.c_str(), CP_UTF8));
         if (!out.is_open())
@@ -289,7 +283,7 @@ void ScanDir::save_partial_video_avs()
             continue;
         }
 
-        if (avs_template_.empty())
+        if (!have_avs_template)
         {
             if (is_x86)
                 out << "LoadPlugin(\"D:\\Program Files (x86)\\MeGUI\\tools\\lsmash\\LSMASHSource.dll\")\n";
@@ -302,7 +296,7 @@ void ScanDir::save_partial_video_avs()
         {
             out << "import(\"" << common_filename << "\")" << std::endl << std::endl;
 
-            for (std::vector<std::string>::const_iterator i = avs_template_.begin(); i != avs_template_.end(); ++i)
+            for (std::vector<std::string>::const_iterator i = avs_template.begin(); i != avs_template.end(); ++i)
             {
                 std::string s = *i;
                 replace_word(s, "$$$clip$$$", "source_dir + \"" + in_filename + "\"");
@@ -314,38 +308,36 @@ void ScanDir::save_partial_video_avs()
         
         out.close();
 
-        if (vd_template)
+        std::string double_backslash_name;
+        for (std::string::const_iterator i = in_filename.begin(); i != in_filename.end(); ++i)
         {
-            render << "\"D:\\Program Files\\VirtualDub\\vdub64.exe\" /s " + full_filename + ".vdscript" << std::endl;
+            if (*i == '\\')
+                double_backslash_name += "\\\\";
+            else
+                double_backslash_name += *i;
+        }
 
-            std::string double_backslash_name;
-            for (std::string::const_iterator i = in_filename.begin(); i != in_filename.end(); ++i)
-            {
-                if (*i == '\\')
-                    double_backslash_name += "\\\\";
-                else
-                    double_backslash_name += *i;
-            }
+        std::string dir = dir_ + "\\";
+        std::string double_backslash_dir;
+        for (std::string::const_iterator i = dir.begin(); i != dir.end(); ++i)
+        {
+            if (*i == '\\')
+                double_backslash_dir += "\\\\";
+            else
+                double_backslash_dir += *i;
+        }
 
-            std::string dir = dir_ + "\\";
-            std::string double_backslash_dir;
-            for (std::string::const_iterator i = dir.begin(); i != dir.end(); ++i)
-            {
-                if (*i == '\\')
-                    double_backslash_dir += "\\\\";
-                else
-                    double_backslash_dir += *i;
-            }
-
-            const std::string vd_name = full_filename + ".vdscript";
+        if (have_vd_template)
+        {
+            const std::string vd_name = full_filename + (n == 0 ? "" : ns) + ".vdscript";
             std::ofstream of(string_utils::to_tstring(vd_name.c_str(), CP_UTF8));
             if (!of.is_open())
             {
                 std::cout << "Unable to open file " << vd_name << std::endl;
-                return;
+                return false;
             }
 
-            for (std::vector<std::string>::const_iterator i = template_.begin(); i != template_.end(); ++i)
+            for (std::vector<std::string>::const_iterator i = vd_template.begin(); i != vd_template.end(); ++i)
             {
                 std::string s = *i;
                 replace_word(s, "$$$dir$$$", double_backslash_dir);
@@ -356,10 +348,32 @@ void ScanDir::save_partial_video_avs()
 
             of.close();
         }
+
+        if (have_vd_template || have_ren_template)
+        {
+            if (!have_ren_template)
+                render << "\"D:\\Program Files\\VirtualDub\\vdub64.exe\" /s " + full_filename + ".vdscript" << std::endl;
+            else
+            {
+                for (std::vector<std::string>::const_iterator i = ren_template.begin(); i != ren_template.end(); ++i)
+                {
+                    std::string s = *i;
+                    replace_word(s, "$$$dir$$$", dir);
+                    replace_word(s, "$$$dir_ds$$$", double_backslash_dir);
+                    replace_word(s, "$$$clip$$$", full_filename);
+                    replace_word(s, "$$$clip_name$$$", in_filename);
+
+                    render << s << std::endl;
+                }
+                render << std::endl;
+            }
+        }
     }
 
-    if (vd_template)
+    if (have_vd_template || have_ren_template)
         render.close();
+
+    return true;
 }
 
 void ScanDir::save_video_avs(const _TCHAR* filename)
@@ -640,7 +654,9 @@ int _tmain(int argc, _TCHAR* argv[])
     }
 
     ScanDir sd(dir.c_str(), ext.c_str());
-    sd.save_partial_video_avs();
+
+    for (unsigned n = 0; sd.save_partial_video_avs(n); ++n) {}
+
     sd.save_video_avs(_T("video.avs"));
     sd.save_audio_avs(_T("audio.avs"));
     return 0;
