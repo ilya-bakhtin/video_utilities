@@ -3,56 +3,69 @@
 
 #include "s8-avs-creator.h"
 
-S8AvsCreator::S8AvsCreator(const tstring& dir, const tstring& template_name, std::istream& entries_file):
+S8AvsCreator::S8AvsCreator(const tstring& dir, std::istream& entries_file):
     dir_(string_utils::to_ansi_string(dir.c_str(), CP_UTF8)),
-    template_name_(string_utils::to_ansi_string(template_name.c_str(), CP_UTF8)),
     entries_file_(entries_file)
 {
 }
 
-void S8AvsCreator::process_entries()
+bool S8AvsCreator::process_entry(const std::string& name, const std::string& render_file, const std::string& ns)
 {
-    std::ifstream tmpl(string_utils::to_tstring(template_name_.c_str(), CP_UTF8));
+//    template_name_(string_utils::to_ansi_string(template_name.c_str(), CP_UTF8)),
+    std::ifstream tmpl(string_utils::to_tstring(name.c_str(), CP_UTF8));
+//    std::string name = string_utils::to_ansi_string(tname.c_str(), CP_UTF8);
+
+//    std::ifstream tmpl(tname);
     if (!tmpl.is_open())
     {
-        std::cout << "Unable to open file " << template_name_.c_str() << std::endl;
-        return;
+        if (ns.empty())
+            std::cout << "Unable to open file " << name.c_str() << std::endl;
+        return false;
     }
+
+    std::vector<std::string> templ;
 
     std::string line;
     while (tmpl.good())
     {
         std::getline(tmpl, line);
-        template_.push_back(line);
+        templ.push_back(line);
     }
     tmpl.close();
 
-    const size_t p = template_name_.rfind(".");
+    const size_t p = name.rfind(".");
     std::string ext;
     if (p != std::string::npos)
-        ext = template_name_.substr(p).c_str();
+        ext = name.substr(p).c_str();
 
     const bool is_vdscript = ext == ".vdscript";
 
     std::string dir = dir_ + "\\";
-    if (is_vdscript)
+
+    std::string double_backslash_dir;
+    for (std::string::const_iterator i = dir.begin(); i != dir.end(); ++i)
     {
-        std::string double_backslash_dir;
-        for (std::string::const_iterator i = dir.begin(); i != dir.end(); ++i)
+        if (*i == '\\')
+            double_backslash_dir += "\\\\";
+        else
+            double_backslash_dir += *i;
+    }
+//    dir = double_backslash_dir;
+
+    std::ofstream render;
+    if (!render_file.empty())
+    {
+        render.open(string_utils::to_tstring(render_file.c_str(), CP_UTF8));
+        if (!render.is_open())
         {
-            if (*i == '\\')
-                double_backslash_dir += "\\\\";
-            else
-                double_backslash_dir += *i;
+            std::cout << "Unable to open file " << render_file << std::endl;
+            return false;
         }
-        dir = double_backslash_dir;
     }
 
-    while (entries_file_.good())
+    for (std::vector<std::string>::const_iterator i = entries_.begin(); i != entries_.end(); ++i)
     {
-        std::getline(entries_file_, line);
-        if (line.empty())
-            continue;
+        line = *i;
 
         std::string clip;
         std::string sad;
@@ -90,18 +103,23 @@ void S8AvsCreator::process_entries()
         else
             sadc = "1100";
 
-        const std::string of_name = clip + ext;
+        const std::string of_name = clip + ns + ext;
         std::ofstream of(string_utils::to_tstring(of_name.c_str(), CP_UTF8));
         if (!of.is_open())
         {
             std::cout << "Unable to open file " << of_name << std::endl;
-            return;
+            return false;
         }
 
-        for (std::vector<std::string>::const_iterator i = template_.begin(); i != template_.end(); ++i)
+        for (std::vector<std::string>::const_iterator i = templ.begin(); i != templ.end(); ++i)
         {
             std::string s = *i;
-            replace_word(s, "$$$dir$$$", dir);
+            if (is_vdscript)
+                replace_word(s, "$$$dir$$$", double_backslash_dir);
+            else
+                replace_word(s, "$$$dir$$$", dir);
+
+            replace_word(s, "$$$dir_ds$$$", double_backslash_dir);
             replace_word(s, "$$$clip$$$", clip);
             replace_word(s, "$$$sad$$$", sad);
             replace_word(s, "$$$sadc$$$", sadc);
@@ -110,6 +128,56 @@ void S8AvsCreator::process_entries()
         }
 
         of.close();
+
+        if (render.is_open())
+        {
+            if (is_vdscript)
+                render << "\"D:\\Program Files\\VirtualDub\\vdub64.exe\" /s " << dir << of_name << std::endl;
+            else
+                render << "call render-step.bat %1 " << clip << std::endl;
+        }
+
+    }
+
+    if (render.is_open())
+        render.close();
+
+    return true;
+}
+
+void S8AvsCreator::process_entries(const tstring& template_name)
+{
+    while (entries_file_.good())
+    {
+        std::string line;
+        std::getline(entries_file_, line);
+        if (line.empty())
+            continue;
+        entries_.push_back(line);
+    }
+
+    if (!template_name.empty())
+    {
+        process_entry(string_utils::to_ansi_string(template_name.c_str(), CP_UTF8), "", "");
+        return;
+    }
+
+    for (unsigned n = 0; ; ++n)
+    {
+        char ns[64] = "";
+        if (n != 0)
+            _snprintf_s(ns, sizeof(ns), "-%u", n);
+
+        const std::string avs_template_name = dir_ + "\\" + "template" + ns + ".avs";
+        const std::string vd_template_name = dir_ + "\\" + "template" + ns + ".vdscript";
+//        const std::string ren_template_name = dir_ + "\\" + "template" + ns + ".render";
+        const std::string render_bat_name = dir_ + "\\" + "render" + ns + ".bat";
+
+        const bool avs = process_entry(avs_template_name, render_bat_name, ns);
+        const bool vd = process_entry(vd_template_name, render_bat_name, ns);
+
+        if (!avs && !vd)
+            break;
     }
 }
 

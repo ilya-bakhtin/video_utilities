@@ -581,16 +581,12 @@ int _tmain(int argc, _TCHAR* argv[])
             mode = mux_mov;
         else if (_tcscmp(_T("-s8-avs"), argv[1]) == 0)
         {
-            if (argc > 2)
-            {
-                tmpl = argv[2];
-                mode = s8_avs;
-            }
+            if (argc <= 2)
+                std::cout << "template[-N].avs template[-N].vdscript and template[-N].render will be used" << std::endl;
             else
-            {
-                std::cerr << "please specify template name" << std::endl;
-                exit(1);
-            }
+                tmpl = argv[2];
+
+            mode = s8_avs;
         }
         else if (_tcscmp(_T("-split-avs"), argv[1]) == 0)
         {
@@ -664,8 +660,8 @@ int _tmain(int argc, _TCHAR* argv[])
     }
     else if (mode == s8_avs)
     {
-        S8AvsCreator c(dir, tmpl, std::cin);
-        c.process_entries();
+        S8AvsCreator c(dir, std::cin);
+        c.process_entries(tmpl);
         return 0;
     }
     else if (mode == split_avs)
