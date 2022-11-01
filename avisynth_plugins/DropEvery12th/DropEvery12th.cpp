@@ -538,7 +538,7 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
     AVS_linkage = vectors;
     env->AddFunction("DropEvery12th", "ci", Create_DropEvery12th, 0);
     env->AddFunction("TitleExpand", "c", Create_TitleExpand, 0);
-    env->AddFunction("MaskUpdate", "c", Create_MaskUpdate, 0);
+    env->AddFunction("MaskUpdate", "c[mask_w]i[mask_h]i", Create_MaskUpdate, 0);
     return "`DropEvery12th' DropEvery12th plugin";
 }
 

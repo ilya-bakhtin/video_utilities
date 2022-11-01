@@ -9,14 +9,14 @@
 class MaskUpdate : public GenericVideoFilter
 {
 public:
-    MaskUpdate(PClip _child, IScriptEnvironment* env);
+    MaskUpdate(PClip _child, int mask_w, int mask_h, IScriptEnvironment* env);
     virtual ~MaskUpdate();
 
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
 
 private:
-    static const int x_limit = 128;
-    static const int y_limit = 128;
+    int x_limit;
+    int y_limit;
 
     mutable std::vector<int> vizited_;
     mutable std::vector<std::pair<int, int> > vizited_p2_;
@@ -26,8 +26,10 @@ private:
     void minmax_to_neighbours(int x, int y, PVideoFrame& src, int min_x, int max_y);
 };
 
-MaskUpdate::MaskUpdate(PClip _child, IScriptEnvironment* env) :
-    GenericVideoFilter(_child)
+MaskUpdate::MaskUpdate(PClip _child, int mask_w, int mask_h, IScriptEnvironment* env) :
+    GenericVideoFilter(_child),
+    x_limit(mask_w),
+    y_limit(mask_h)
 {
     vizited_.resize(x_limit*y_limit);
     vizited_p2_.resize(x_limit*y_limit);
@@ -395,5 +397,7 @@ AVSValue __cdecl Create_MaskUpdate(AVSValue args, void* user_data, IScriptEnviro
 {
     return new MaskUpdate(
                 args[0].AsClip(), // the 0th parameter is the source clip
+                args[1].AsInt(128), // mask W
+                args[2].AsInt(128), // mask H
                 env);  
 }
