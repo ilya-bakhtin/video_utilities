@@ -119,12 +119,14 @@ ScanDir::~ScanDir()
 void ScanDir::add_avi_scenes()
 {
     const std::string scenes_name = cdir_ + "\\" + "scenes.avs";
-    struct stat sb;
-    const bool scenes = stat(scenes_name.c_str(), &sb) == 0;
+
+    tstring tname = string_utils::to_tstring(scenes_name.c_str(), CP_UTF8);
+    struct _stat sb;
+    const bool scenes = _tstat(tname.c_str(), &sb) == 0;
 
     if (scenes)
     {
-        std::ifstream sc_file(string_utils::to_tstring(scenes_name.c_str(), CP_UTF8));
+        std::ifstream sc_file(tname);
         if (!sc_file.is_open())
         {
             std::cout << "Unable to open file " << scenes_name << std::endl;
@@ -149,11 +151,12 @@ void ScanDir::load_scenes_template(bool files)
 {
     const std::string template_name = cdir_ + "\\" + (files ? "template.files" : "template.scenes");
 
-    struct stat sb;
-    if (stat(template_name.c_str(), &sb) != 0)
+    tstring tname = string_utils::to_tstring(template_name.c_str(), CP_UTF8);
+    struct _stat sb;
+    if (_tstat(tname.c_str(), &sb) != 0)
         return;
 
-    std::ifstream tmpl_file(string_utils::to_tstring(template_name.c_str(), CP_UTF8));
+    std::ifstream tmpl_file(tname);
     if (!tmpl_file.is_open())
     {
         std::cout << "Unable to open file " << template_name << std::endl;
@@ -196,11 +199,16 @@ void ScanDir::replace_word(std::string& str, const std::string& word, const std:
 
 bool ScanDir::load_template(const char* name, std::vector<std::string>& templ)
 {
-    struct stat sb;
-    if (stat(name, &sb) != 0)
-        return false;
+    tstring tname = string_utils::to_tstring(name, CP_UTF8);
 
-    std::ifstream tmpl(string_utils::to_tstring(name, CP_UTF8));
+    struct _stat sb;
+    if (_tstat(tname.c_str(), &sb) != 0)
+    {
+//        std::cout << "Couldn't stat \"" << name << "\"" << std::endl;
+        return false;
+    }
+
+    std::ifstream tmpl(tname);
     if (!tmpl.is_open())
     {
         std::cout << "Unable to open file " << name << std::endl;
@@ -303,7 +311,7 @@ bool ScanDir::save_partial_video_avs(unsigned n)
         }
         else
         {
-            out << "import(\"" << common_filename << "\")" << std::endl << std::endl;
+            out << "import(\"" << common_filename << "\", utf8 = true)" << std::endl << std::endl;
 
             for (std::vector<std::string>::const_iterator i = avs_template.begin(); i != avs_template.end(); ++i)
             {
@@ -389,17 +397,18 @@ void ScanDir::save_video_avs(const _TCHAR* filename)
         return;
     }
 
-    std::wcout << filename << std::endl;
+    std::string afilename = string_utils::to_ansi_string(filename, CP_UTF8);
+    std::cout << afilename << std::endl;
 
     std::ofstream out(filename);
     if (!out.is_open())
     {
-        std::wcout << "Unable to open file " << filename << std::endl;
+        std::cout << "Unable to open file " << afilename << std::endl;
         return;
     }
 
     const std::string common_filename(cdir_ + "\\" + "common.avs");
-    out << "import(\"" << common_filename << "\")" << std::endl << std::endl;
+    out << "import(\"" << common_filename << "\", utf8 = true)" << std::endl << std::endl;
 
     const bool has_scene_start_template = !scn_template_.empty() && scn_template_.back().find("$$$start$$$") != std::string::npos;
     const bool has_scene_end_template = !scn_template_.empty() && scn_template_.back().find("$$$end$$$") != std::string::npos;
